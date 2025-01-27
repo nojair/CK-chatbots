@@ -24,7 +24,7 @@ const handler = async (event) => {
       id_clinica
     } = datosEntrada;
 
-    // Aquí tomamos el ID de la clínica y de la superclínica
+    // Validar datos de entrada
     if (!id_clinica) {
       return {
         statusCode: 400,
@@ -35,58 +35,57 @@ const handler = async (event) => {
     if (!Array.isArray(tratamientosSeleccionados) || tratamientosSeleccionados.length === 0) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "El mensaje no indica un tratamientos." }),
+        body: JSON.stringify({ error: "El mensaje no indica un tratamiento." }),
       };
     }
 
-    // Obtener JSON estructurado con tratamientos, médicos, espacios y otros datos necesarios
-    const tratamientosData = await tratamientosService.getTratamientosData(conn,
-      {
-        tratamientosSeleccionados,
-        id_clinica
-      }
-    );
-    
-    // Obtener los datos necesarios para availabilityCalculator
-    const prog_medicos = await sqlGenerator.getProgramacionMedicos(conn, id_clinica);
-    const prog_espacios = await sqlGenerator.getProgramacionEspacios(conn, id_clinica);
-    const citas_programadas = await sqlGenerator.getCitasProgramadas(conn, id_clinica);
-    const medicos = await sqlGenerator.getMedicos(conn, id_clinica);
-    const espacios = await sqlGenerator.getEspacios(conn, id_clinica);
-    const medico_espacio = await sqlGenerator.getMedicoEspacio(conn, id_clinica);
-    const espacio_tratamiento = await sqlGenerator.getEspacioTratamiento(conn, id_clinica);
-    
-    // Construir el objeto de entrada para availabilityCalculator
+    // Obtener JSON estructurado con tratamientos, médicos, y espacios
+    const tratamientosData = await tratamientosService.getTratamientosData(conn, {
+      tratamientosSeleccionados,
+      id_clinica,
+    });
+
+    // Extraer IDs de médicos y espacios del JSON de tratamientosData
+    const idMedicos = [
+      ...new Set(tratamientosData.flatMap(t => t.medicos.map(m => m.id_medico))),
+    ];
+    const idEspacios = [
+      ...new Set(tratamientosData.flatMap(t => t.medicos.flatMap(m => m.espacios.map(e => e.id_espacio)))),
+    ];
+
+    // Generar las consultas SQL necesarias con los datos extraídos
+    const consultasSQL = sqlGenerator.generarConsultasSQL({
+      fechas: fechasSeleccionadas,
+      id_medicos: idMedicos,
+      id_espacios: idEspacios,
+      id_clinica
+    });
+
+    // Ejecutar las consultas SQL
+    const [citas] = await conn.query(consultasSQL.sql_citas);
+    const [progMedicos] = await conn.query(consultasSQL.sql_prog_medicos);
+    const [progEspacios] = await conn.query(consultasSQL.sql_prog_espacios);
+
+    // Usar directamente `tratamientosData` para construir el input del cálculo de disponibilidad
     const inputData = {
       tratamientos: tratamientosData,
-      prog_medicos,
-      prog_espacios,
-      citas_programadas,
-      medicos,
-      espacios,
-      medico_espacio,
-      espacio_tratamiento,
+      prog_medicos: progMedicos,
+      prog_espacios: progEspacios,
+      citas_programadas: citas,
     };
 
     console.dir(inputData, { depth: null, colors: true });
     return 0;
 
-    // Calcular la disponibilidad con availabilityCalculator
+    // Calcular la disponibilidad
     const disponibilidad = availabilityCalculator(inputData);
-
-    // Construir y ejecutar consultas SQL
-    const resultadosSQL = await sqlGenerator.buildAndExecuteQueries(
-      conn,
-      tratamientosData,
-      { ...datosEntrada, id_clinica }
-    );
 
     // Liberar la conexión después de realizar las operaciones
     conn.release();
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ tratamientosData, disponibilidad, resultadosSQL }),
+      body: JSON.stringify({ tratamientosData, disponibilidad }),
     };
   } catch (error) {
     console.error("Error en la Lambda:", error);
@@ -99,6 +98,8 @@ const handler = async (event) => {
     };
   }
 };
+
+module.exports = { handler };
 
 handler({
   body: '{"id_clinica":64,"tiempo_actual":"2025-01-26T18:54:22.000Z","tratamientos":["Quiropodia", "Primera consulta dermatológica (quiropodia)"],"medicos":[],"espacios":[],"aparatologias":[],"especialidades":[],"fechas":[{"fecha":"2025-01-28","horas":[{"hora_inicio":"","hora_fin":""}]}]}'
