@@ -45,6 +45,10 @@ const handler = async (event) => {
       id_clinica,
     });
 
+    console.log('=== tratamientosData ==========================');
+    console.dir(tratamientosData, { depth: null, colors: true });
+    console.log('=============================');
+
     // Extraer IDs de médicos y espacios del JSON de tratamientosData
     const idMedicos = [
       ...new Set(tratamientosData.flatMap(t => t.medicos.map(m => m.id_medico))),
@@ -74,11 +78,16 @@ const handler = async (event) => {
       citas_programadas: citas,
     };
 
+    console.log('=== inputData ==========================');
     console.dir(inputData, { depth: null, colors: true });
-    return 0;
+    console.log('=============================');
 
     // Calcular la disponibilidad
     const disponibilidad = availabilityCalculator(inputData);
+
+    console.log('=== disponibilidad ==========================');
+    console.dir(disponibilidad, { depth: null, colors: true });
+    console.log('=============================');
 
     // Liberar la conexión después de realizar las operaciones
     conn.release();

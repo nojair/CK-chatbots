@@ -1,170 +1,135 @@
-function calculateAvailability(inputData) {
-  const { 
-      tratamientos, 
-      prog_medicos, 
-      prog_espacios, 
-      citas_programadas 
-  } = inputData;
-
-  // Construir estructuras para fácil acceso
-  const medicosMap = Object.fromEntries(inputData.tratamientos.flatMap(t => t.medicos.map(m => [m.id_medico, m.nombre_medico])));
-  const espaciosMap = inputData.tratamientos.flatMap(t => t.medicos.flatMap(m => m.espacios.map(e => [e.id_espacio, e.nombre])));
-
-  // Relación médico-espacio
-  const medicoEspacioMap = inputData.tratamientos.reduce((map, tratamiento) => {
-    tratamiento.medicos.forEach(medico => {
-      const { id_medico, espacios } = medico;
-      if (!map[id_medico]) map[id_medico] = new Set();
-      espacios.forEach(espacio => map[id_medico].add(espacio.id_espacio));
-    });
-    return map;
-  }, {});
-
-  // Relación espacio-tratamiento
-  const espacioTratamientoMap = inputData.tratamientos.reduce((map, tratamiento) => {
-    const { id_tratamiento, medicos } = tratamiento;
-    medicos.forEach(medico => {
-      medico.espacios.forEach(espacio => {
-        if (!map[espacio.id_espacio]) map[espacio.id_espacio] = new Set();
-        map[espacio.id_espacio].add(id_tratamiento);
-      });
-    });
-    return map;
-  }, {});
-
-  // Construir disponibilidad
-  const disponibilidadMedicos = buildAvailability(prog_medicos, 'id_medico');
-  const disponibilidadEspacios = buildAvailability(prog_espacios, 'id_espacio');
-
-  // Bloquear horarios por citas programadas
-  blockScheduledAppointments(disponibilidadMedicos, citas_programadas, 'id_medico');
-  blockScheduledAppointments(disponibilidadEspacios, citas_programadas, 'id_espacio');
-
-  // Generar la disponibilidad
-  const disponibilidad = [];
-
-  tratamientos.forEach(tratamiento => {
-    const { id_tratamiento, nombre_tratamiento, medicos } = tratamiento;
-    const duracionMs = tratamiento.duracion * 60 * 1000; // Convertir minutos a milisegundos
-
-    medicos.forEach(medico => {
-      const { id_medico, nombre_medico, espacios } = medico;
-      const espaciosAsignados = medicoEspacioMap[id_medico] || new Set();
-
-      espacios.forEach(espacio => {
-        if (!espacioTratamientoMap[espacio.id_espacio]?.has(id_tratamiento)) return;
-
-        const horariosMedico = disponibilidadMedicos[id_medico] || {};
-        const horariosEspacio = disponibilidadEspacios[espacio.id_espacio] || {};
-        const nombreEspacio = espacio.nombre;
-
-        const horariosCombinados = combineSchedules(horariosMedico, horariosEspacio);
-
-        Object.entries(horariosCombinados).forEach(([fecha, slots]) => {
-          slots.forEach(slot => {
-            const { inicio, fin } = slot;
-
-            const inicioDisponible = alignTime(inicio, true);
-            const finDisponibleMax = alignTime(fin - duracionMs, false);
-
-            if (inicioDisponible <= finDisponibleMax) {
-              disponibilidad.push({
-                fecha,
-                hora_inicio_minima: new Date(inicioDisponible).toISOString(),
-                hora_inicio_maxima: new Date(finDisponibleMax).toISOString(),
-                id_medico: parseInt(id_medico, 10),
-                nombre_medico,
-                id_espacio: parseInt(espacio.id_espacio, 10),
-                nombre_espacio,
-                id_tratamiento,
-                nombre_tratamiento,
-                duracion_tratamiento: tratamiento.duracion
-              });
-            }
-          });
-        });
-      });
-    });
-  });
-
-  return disponibilidad;
-}
-
-function buildAvailability(progList, idKey) {
-  const availability = {};
-  progList.forEach(prog => {
-    const id = prog[idKey];
-    const fechaInicio = new Date(prog.fecha_inicio);
-    const fechaFin = new Date(prog.fecha_fin);
-    const horaInicio = parseTime(prog.hora_inicio);
-    const horaFin = parseTime(prog.hora_fin);
-
-    let currentDate = new Date(fechaInicio);
-    while (currentDate <= fechaFin) {
-      const fechaStr = currentDate.toISOString().split('T')[0];
-      if (!availability[id]) availability[id] = {};
-      if (!availability[id][fechaStr]) availability[id][fechaStr] = [];
-
-      let currentTime = new Date(currentDate);
-      currentTime.setHours(horaInicio.getHours(), horaInicio.getMinutes(), 0, 0);
-
-      while (currentTime < horaFin) {
-        availability[id][fechaStr].push({ inicio: currentTime.getTime(), fin: currentTime.getTime() + 30 * 60 * 1000 }); // slots de 30 minutos
-        currentTime.setMinutes(currentTime.getMinutes() + 30); // avanzar al siguiente slot de 30 minutos
-      }
-      currentDate.setDate(currentDate.getDate() + 1); // pasar al siguiente día
-    }
-  });
-
-  return availability;
-}
-
-function blockScheduledAppointments(disponibilidad, citas, idKey) {
-  citas.forEach(cita => {
-    const id = cita[idKey];
-    const fecha = new Date(cita.fecha_cita).toISOString().split('T')[0];
-    const horaInicio = parseTime(cita.hora_inicio);
-    const horaFin = parseTime(cita.hora_fin);
-
-    if (disponibilidad[id] && disponibilidad[id][fecha]) {
-      disponibilidad[id][fecha] = disponibilidad[id][fecha].filter(slot => {
-        return slot.inicio < horaInicio.getTime() || slot.fin > horaFin.getTime();
-      });
-    }
-  });
-}
-
-function combineSchedules(horariosMedico, horariosEspacio) {
-  const horariosCombinados = {};
-  Object.keys(horariosMedico).forEach(fecha => {
-    if (!horariosCombinados[fecha]) horariosCombinados[fecha] = [];
-    horariosMedico[fecha].forEach(slot => {
-      horariosEspacio[fecha]?.forEach(espacioSlot => {
-        horariosCombinados[fecha].push({
-          inicio: Math.max(slot.inicio, espacioSlot.inicio),
-          fin: Math.min(slot.fin, espacioSlot.fin)
-        });
-      });
-    });
-  });
-  return horariosCombinados;
-}
-
-function parseTime(timeString) {
-  const [hours, minutes] = timeString.split(':').map(Number);
-  const date = new Date();
-  date.setHours(hours, minutes, 0, 0);
-  return date;
-}
-
-function alignTime(time, isStart) {
-  const date = new Date(time);
-  if (isStart) {
-    date.setMilliseconds(0);
-    date.setSeconds(0);
-  } else {
-    date.setMilliseconds(0);
-    date.setSeconds(59);
+function availabilityCalculator(inputData) {
+  // Validar que inputData tenga las propiedades necesarias
+  if (!inputData || !inputData.tratamientos || !inputData.prog_medicos || !inputData.prog_espacios || !inputData.citas_programadas) {
+      throw new Error("El objeto de entrada no tiene las propiedades requeridas.");
   }
-  return date.getTime();
+
+  let availableSlots = [];
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+
+  // Recorrer cada tratamiento
+  inputData.tratamientos.forEach(tratamiento => {
+      if (!tratamiento.tratamiento || !tratamiento.tratamiento.id_tratamiento || !tratamiento.tratamiento.duracion_tratamiento) {
+          console.log('tratamiento.tratamiento', tratamiento.tratamiento)
+          console.log('tratamiento.tratamiento.id_tratamiento', tratamiento.tratamiento.id_tratamiento)
+          console.log('tratamiento.tratamiento.duracion_tratamiento', tratamiento.tratamiento.duracion_tratamiento)
+
+          console.warn(`El tratamiento con datos incompletos fue ignorado: ${JSON.stringify(tratamiento)}`);
+          return;
+      }
+
+      tratamiento.medicos.forEach(medico => {
+          if (!medico.id_medico || !medico.espacios) {
+              console.warn(`El médico con datos incompletos fue ignorado: ${JSON.stringify(medico)}`);
+              return;
+          }
+
+          medico.espacios.forEach(espacio => {
+              if (!espacio.id_espacio || !espacio.nombre) {
+                  console.warn(`El espacio con datos incompletos fue ignorado: ${JSON.stringify(espacio)}`);
+                  return;
+              }
+
+              // Filtrar programaciones del médico y del espacio
+              const programasMedicoEspacio = inputData.prog_medicos.filter(prog =>
+                  prog.id_medico === medico.id_medico && prog.id_espacio === espacio.id_espacio
+              );
+              const programasEspacio = inputData.prog_espacios.filter(prog =>
+                  prog.id_espacio === espacio.id_espacio
+              );
+
+              // Si no hay programas, no hay disponibilidad
+              if (programasMedicoEspacio.length === 0 || programasEspacio.length === 0) {
+                  return;
+              }
+
+              // Filtrar citas programadas para este médico, espacio y tratamiento
+              const citasProgramadas = inputData.citas_programadas.filter(cita =>
+                  cita.id_medico === medico.id_medico &&
+                  cita.id_espacio === espacio.id_espacio &&
+                  cita.id_tratamiento === tratamiento.tratamiento.id_tratamiento
+              );
+
+              // Generar horarios disponibles basados en las programaciones
+              programasEspacio.forEach(programaEspacio => {
+                  const fechaInicio = new Date(programaEspacio.fecha_inicio);
+                  const fechaFin = new Date(programaEspacio.fecha_fin);
+
+                  while (fechaInicio <= fechaFin) {
+                      const fechaStr = fechaInicio.toISOString().split('T')[0];
+
+                      // Calcular las horas disponibles dentro del rango
+                      let horaInicio = new Date(fechaInicio);
+                      horaInicio.setHours(
+                          parseInt(programaEspacio.hora_inicio.slice(0, 2), 10),
+                          parseInt(programaEspacio.hora_inicio.slice(3, 5), 10),
+                          0, 0
+                      );
+                      const horaFin = new Date(fechaInicio);
+                      horaFin.setHours(
+                          parseInt(programaEspacio.hora_fin.slice(0, 2), 10),
+                          parseInt(programaEspacio.hora_fin.slice(3, 5), 10),
+                          0, 0
+                      );
+
+                      while (horaInicio < horaFin) {
+                          const horaInicioStr = horaInicio.toTimeString().split(' ')[0];
+
+                          // Calcular el horario de fin basado en la duración del tratamiento
+                          const horaFinSlot = new Date(horaInicio);
+                          horaFinSlot.setMinutes(horaInicio.getMinutes() + tratamiento.tratamiento.duracion_tratamiento);
+                          const horaFinStr = horaFinSlot.toTimeString().split(' ')[0];
+
+                          // Verificar si el horario está disponible
+                          const solapamiento = citasProgramadas.some(cita => {
+                              const citaFecha = new Date(cita.fecha_cita);
+                              const citaHoraInicio = new Date(citaFecha);
+                              const [citaHoras, citaMinutos] = cita.hora_inicio.split(':');
+                              citaHoraInicio.setHours(citaHoras, citaMinutos, 0, 0);
+
+                              const citaHoraFin = new Date(citaHoraInicio);
+                              citaHoraFin.setMinutes(citaHoraInicio.getMinutes() + tratamiento.tratamiento.duracion_tratamiento);
+
+                              // Verificar si las citas se solapan
+                              return (
+                                  citaFecha.toISOString().split('T')[0] === fechaStr &&
+                                  (
+                                      (horaInicio >= citaHoraInicio && horaInicio < citaHoraFin) ||
+                                      (horaFinSlot > citaHoraInicio && horaFinSlot <= citaHoraFin)
+                                  )
+                              );
+                          });
+
+                          if (!solapamiento && horaInicio >= hoy) {
+                              availableSlots.push({
+                                  fecha_inicio: fechaStr,
+                                  fecha_fin: fechaStr,
+                                  hora_inicio: horaInicioStr,
+                                  hora_fin: horaFinStr,
+                                  id_medico: medico.id_medico,
+                                  nombre_medico: medico.nombre_medico,
+                                  id_espacio: espacio.id_espacio,
+                                  nombre_espacio: espacio.nombre,
+                                  id_tratamiento: tratamiento.tratamiento.id_tratamiento,
+                                  nombre_tratamiento: tratamiento.tratamiento.nombre_tratamiento,
+                                  duracion_tratamiento: tratamiento.tratamiento.duracion_tratamiento
+                              });
+                          }
+
+                          // Avanzar al siguiente horario
+                          horaInicio.setMinutes(horaInicio.getMinutes() + tratamiento.tratamiento.duracion_tratamiento);
+                      }
+
+                      // Avanzar al siguiente día
+                      fechaInicio.setDate(fechaInicio.getDate() + 1);
+                  }
+              });
+          });
+      });
+  });
+
+  return availableSlots;
 }
+
+module.exports = availabilityCalculator;

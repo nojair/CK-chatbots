@@ -6,8 +6,9 @@ async function getTratamientosData(connection, {
   const [foundTratamientos] = await connection.execute(
     `
     SELECT DISTINCT 
-        id_tratamiento, 
+        id_tratamiento,
         nombre_tratamiento,
+        duracion,
         MATCH(nombre_tratamiento, descripcion) AGAINST(?) AS relevancia,
         (CASE 
             WHEN nombre_tratamiento IN (${tratamientosSeleccionados.map(() => '?').join(', ')}) THEN 1 
@@ -24,7 +25,7 @@ async function getTratamientosData(connection, {
       tratamientosSeleccionados.join(" "), // Reutilizamos el texto para el segundo MATCH
       id_clinica, // ID de la clínica
     ]
-  );
+  );  
 
   const tratamientos = foundTratamientos.filter(ft => ft.es_exacto == 1);
 
@@ -65,6 +66,7 @@ async function getTratamientosData(connection, {
       tratamiento: {
         id_tratamiento: tratamiento.id_tratamiento,
         nombre_tratamiento: tratamiento.nombre_tratamiento,
+        duracion_tratamiento: tratamiento.duracion,
       },
       medicos: medicosConEspacios,
     });
