@@ -1,11 +1,29 @@
+// index.js
 const { getDbPool } = require("./get_horarios_disponibles/db");
 const sqlGenerator = require("./get_horarios_disponibles/sqlGenerator");
 const fixAvailability = require("./get_horarios_disponibles/fixAvailability");
-const tratamientosService = require("./get_horarios_disponibles/tratamientosService");
+const tratamientosService = require("./get_horarios_disponibles/treatmentsService");
 const availabilityCalculator = require("./get_horarios_disponibles/availabilityCalculator");
+
+// Función de Retry para ejecutar consultas con reintentos
+async function executeWithRetry(connection, query, params = [], retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await connection.execute(query, params);
+    } catch (error) {
+      if (error.code === 'ER_CLIENT_INTERACTION_TIMEOUT' && attempt < retries) {
+        console.warn(`Timeout en intento ${attempt}, reintentando...`);
+        await new Promise(res => setTimeout(res, 1000)); // Espera 1 segundo antes de reintentar
+      } else {
+        throw error;
+      }
+    }
+  }
+}
 
 exports.handler = async (event) => {
   let conn;
+  let allErrorMessaeges = [];
 
   try {
     console.log("Evento recibido:", JSON.stringify(event));
@@ -29,23 +47,27 @@ exports.handler = async (event) => {
     } = datosEntrada;
 
     if (!id_clinica) {
-      console.error("Falta el ID de la clínica.");
+      const error = "[ERR100] Falta el ID de la clínica.";
+      allErrorMessaeges.push(error);
+      console.error(error);
       return {
         statusCode: 400,
         body: JSON.stringify({
           success: false,
-          message: "Falta el ID de la clínica.",
+          message: error,
         }),
       };
     }
 
     if (!Array.isArray(tratamientosConsultados) || tratamientosConsultados.length === 0) {
-      console.error("No se seleccionaron tratamientos.");
+      const error = "[ERR101] No se seleccionaron tratamientos.";
+      allErrorMessaeges.push(error);
+      console.error(error);
       return {
         statusCode: 400,
         body: JSON.stringify({
           success: false,
-          message: "El mensaje no indica un tratamiento.",
+          message: error,
         }),
       };
     }
@@ -54,18 +76,22 @@ exports.handler = async (event) => {
 
     let tratamientosData;
     try {
-      tratamientosData = await tratamientosService.getTratamientosData(conn, {
+      const tratamientosResponse = await tratamientosService.getTratamientosData(conn, {
         tratamientosConsultados,
         id_clinica,
       });
+      tratamientosData = tratamientosResponse.result;
+      allErrorMessaeges = allErrorMessaeges.concat(tratamientosResponse.errorMessaeges);
 
       if (tratamientosData.length === 0) {
-        console.warn("Los tratamientos consultados no existen en la base de datos." + tratamientosConsultados.join(', '));
+        const error = "[ERR102] Los tratamientos consultados no existen en la base de datos: " + tratamientosConsultados.join(', ');
+        allErrorMessaeges.push(error);
+        console.warn(error);
         return {
           statusCode: 404,
           body: JSON.stringify({
             success: false,
-            message: "Los tratamientos consultados no existen en la base de datos." + tratamientosConsultados.join(', '),
+            message: error,
           }),
         };
       }
@@ -94,24 +120,27 @@ exports.handler = async (event) => {
     ];
 
     if (idMedicos.length === 0) {
-      console.warn("No se encontraron médicos configurados para los tratamientos consultados." + tratamientosConsultados.join(', '));
+      const error = "[ERR103] No se encontraron médicos configurados para los tratamientos consultados: " + tratamientosConsultados.join(', ');
+      allErrorMessaeges.push(error);
+      console.warn(error);
       return {
         statusCode: 404,
         body: JSON.stringify({
           success: false,
-          message: "No se encontraron médicos configurados para los tratamientos consultados." + tratamientosConsultados.join(', '),
+          message: error,
         }),
       };
     }
 
     if (idEspacios.length === 0) {
-      const nombresMedicos = idMedicos.map(id => w.map(t => t.medicos.find(m => m.id_medico == id))[0]?.nombre_medico).join(', ');
-      console.warn("No se encontraron espacios configurados para los tratamientos consultados o a uno de los médicos " + nombresMedicos);
+      const error = "[ERR104] No se encontraron espacios configurados para los tratamientos consultados o para algún médico.";
+      allErrorMessaeges.push(error);
+      console.warn(error);
       return {
         statusCode: 404,
         body: JSON.stringify({
           success: false,
-          message: "No se encontraron espacios configurados para los tratamientos consultados o a uno de los médicos " + nombresMedicos,
+          message: error,
         }),
       };
     }
@@ -127,9 +156,16 @@ exports.handler = async (event) => {
 
     let citas, progMedicos, progEspacios;
     try {
-      [citas] = await conn.query(consultasSQL.sql_citas);
-      [progMedicos] = await conn.query(consultasSQL.sql_prog_medicos);
-      [progEspacios] = await conn.query(consultasSQL.sql_prog_espacios);
+      // Ejecutar las consultas en paralelo utilizando Promise.all
+      const [citasResult, progMedicosResult, progEspaciosResult] = await Promise.all([
+        executeWithRetry(conn, consultasSQL.sql_citas, [], 3),
+        executeWithRetry(conn, consultasSQL.sql_prog_medicos, [], 3),
+        executeWithRetry(conn, consultasSQL.sql_prog_espacios, [], 3),
+      ]);
+
+      [citas] = citasResult;
+      [progMedicos] = progMedicosResult;
+      [progEspacios] = progEspaciosResult;
     } catch (error) {
       console.error("Error al ejecutar consultas SQL:", error);
       return {
@@ -167,6 +203,7 @@ exports.handler = async (event) => {
     console.log("Disponibilidad calculada:", JSON.stringify(disponibilidad));
     console.log("Tiempo actual:", tiempo_actual);
 
+    // Liberar la conexión
     conn.release();
     console.log("Conexión liberada.");
 
@@ -174,12 +211,14 @@ exports.handler = async (event) => {
 
     // Verificar si disponibilidadAjustadas está vacío
     if (disponibilidadAjustadas.length === 0) {
-      console.warn("No se encontraron horarios disponibles para los tratamientos buscados.");
+      const error = "[ERR105] No se encontraron horarios disponibles para los tratamientos buscados.";
+      allErrorMessaeges.push(error);
+      console.warn(error);
       return {
         statusCode: 404,
         body: JSON.stringify({
           success: false,
-          message: "No se encontraron horarios disponibles para los tratamientos buscados.",
+          message: error,
         }),
       };
     }
@@ -190,6 +229,7 @@ exports.handler = async (event) => {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
+        allErrorMessaeges: allErrorMessaeges.join(', '),
         analisis_agenda: disponibilidadAjustadas,
       }),
     };
