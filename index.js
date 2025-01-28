@@ -8,9 +8,12 @@ exports.handler = async (event) => {
   let conn;
 
   try {
+    console.log("Evento recibido:", JSON.stringify(event));
+
     // Obtener conexión del pool
     const pool = getDbPool();
     conn = await pool.getConnection();
+    console.log("Conexión a la base de datos establecida.");
 
     // Leer y procesar la entrada
     let body = event.body;
@@ -23,60 +26,84 @@ exports.handler = async (event) => {
       tratamientos: tratamientosSeleccionados,
       fechas: fechasSeleccionadas,
       id_clinica,
-      tiempo_actual
+      tiempo_actual,
     } = datosEntrada;
 
-    // Validar datos de entrada
     if (!id_clinica) {
+      console.error("Falta el ID de la clínica.");
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "Ups, parece que hubo un error" }),
+        body: JSON.stringify({ error: "Ups, parece que hubo un error." }),
       };
     }
 
     if (!Array.isArray(tratamientosSeleccionados) || tratamientosSeleccionados.length === 0) {
+      console.error("No se seleccionaron tratamientos.");
       return {
         statusCode: 400,
         body: JSON.stringify({ error: "El mensaje no indica un tratamiento." }),
       };
     }
 
-    // Obtener JSON estructurado con tratamientos, médicos, y espacios
-    const tratamientosData = await tratamientosService.getTratamientosData(conn, {
-      tratamientosSeleccionados,
-      id_clinica,
-    });
+    console.log("Datos de entrada procesados correctamente.");
 
-    console.log('============== TRATAMIENTOS > MÉDICOS > ESPACIOS ==============');
-    console.dir(tratamientosData, { depth: null, colors: true });
-    console.log('===============================================================');
+    let tratamientosData;
+    try {
+      tratamientosData = await tratamientosService.getTratamientosData(conn, {
+        tratamientosSeleccionados,
+        id_clinica,
+      });
 
-    // Extraer IDs de médicos y espacios del JSON de tratamientosData
+      if (tratamientosData.length === 0) {
+        console.warn("No se encontraron tratamientos disponibles.");
+      }
+    } catch (error) {
+      console.error("Error al obtener tratamientos:", error);
+      throw new Error("Error al consultar tratamientos.");
+    }
+
+    console.log("Tratamientos obtenidos:", JSON.stringify(tratamientosData));
+
     const idMedicos = [
-      ...new Set(tratamientosData.flatMap(t => t.medicos.map(m => m.id_medico))),
+      ...new Set(tratamientosData.flatMap((t) => t.medicos.map((m) => m.id_medico))),
     ];
     const idEspacios = [
-      ...new Set(tratamientosData.flatMap(t => t.medicos.flatMap(m => m.espacios.map(e => e.id_espacio)))),
+      ...new Set(
+        tratamientosData.flatMap((t) =>
+          t.medicos.flatMap((m) => m.espacios.map((e) => e.id_espacio))
+        )
+      ),
     ];
 
-    // Generar las consultas SQL necesarias con los datos extraídos
+    if (idMedicos.length === 0) {
+      console.warn("No se encontraron médicos asociados a los tratamientos.");
+    }
+
+    if (idEspacios.length === 0) {
+      console.warn("No se encontraron espacios asociados a los tratamientos.");
+    }
+
     const consultasSQL = sqlGenerator.generarConsultasSQL({
       fechas: fechasSeleccionadas,
       id_medicos: idMedicos,
       id_espacios: idEspacios,
-      id_clinica
+      id_clinica,
     });
 
-    console.log('============== CONSULTAS SQL ==============');
-    console.dir(consultasSQL, { depth: null, colors: true });
-    console.log('===========================================');
+    console.log("Consultas SQL generadas:", JSON.stringify(consultasSQL));
 
-    // Ejecutar las consultas SQL
-    const [citas] = await conn.query(consultasSQL.sql_citas);
-    const [progMedicos] = await conn.query(consultasSQL.sql_prog_medicos);
-    const [progEspacios] = await conn.query(consultasSQL.sql_prog_espacios);
+    let citas, progMedicos, progEspacios;
+    try {
+      [citas] = await conn.query(consultasSQL.sql_citas);
+      [progMedicos] = await conn.query(consultasSQL.sql_prog_medicos);
+      [progEspacios] = await conn.query(consultasSQL.sql_prog_espacios);
+    } catch (error) {
+      console.error("Error al ejecutar consultas SQL:", error);
+      throw new Error("Error al consultar disponibilidad.");
+    }
 
-    // Usar directamente `tratamientosData` para construir el input del cálculo de disponibilidad
+    console.log("Datos obtenidos de la base de datos:", { citas, progMedicos, progEspacios });
+
     const inputData = {
       tratamientos: tratamientosData,
       prog_medicos: progMedicos,
@@ -84,27 +111,28 @@ exports.handler = async (event) => {
       citas_programadas: citas,
     };
 
-    console.log('======== DATA TO CALCULATE AVAILABILITY ========');
-    console.dir(inputData, { depth: null, colors: true });
-    console.log('================================================');
+    let disponibilidad;
+    try {
+      disponibilidad = availabilityCalculator(inputData);
+    } catch (error) {
+      console.error("Error al calcular disponibilidad:", error);
+      throw new Error("Error en el cálculo de disponibilidad.");
+    }
 
-    // Calcular la disponibilidad
-    const disponibilidad = availabilityCalculator(inputData);
+    console.log("Disponibilidad calculada:", JSON.stringify(disponibilidad));
+    console.log("Tiempo actual:", tiempo_actual);
 
-    console.log('================= AVAILABILITY =================');
-    console.dir(disponibilidad, { depth: null, colors: true });
-    console.log('================================================');
-
-    // Liberar la conexión después de realizar las operaciones
     conn.release();
+    console.log("Conexión liberada.");
 
     const disponibilidadAjustadas = fixAvailability(disponibilidad, tiempo_actual);
 
-    const disponibilidad_to_base64 = Buffer.from(JSON.stringify(disponibilidadAjustadas), 'utf-8').toString('base64');
+    console.log("Disponibilidad calculada final:", JSON.stringify(disponibilidadAjustadas));
+
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ resultado_consulta: disponibilidad_to_base64 }),
+      body: JSON.stringify({ resultado_consulta: disponibilidadAjustadas }),
     };
   } catch (error) {
     console.error("Error en la Lambda:", error);
