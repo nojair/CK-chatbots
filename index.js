@@ -1,5 +1,6 @@
 const { getDbPool } = require("./get_horarios_disponibles/db");
 const sqlGenerator = require("./get_horarios_disponibles/sqlGenerator");
+const fixAvailability = require("./get_horarios_disponibles/fixAvailability");
 const tratamientosService = require("./get_horarios_disponibles/tratamientosService");
 const availabilityCalculator = require("./get_horarios_disponibles/availabilityCalculator");
 
@@ -21,7 +22,8 @@ exports.handler = async (event) => {
     const {
       tratamientos: tratamientosSeleccionados,
       fechas: fechasSeleccionadas,
-      id_clinica
+      id_clinica,
+      tiempo_actual
     } = datosEntrada;
 
     // Validar datos de entrada
@@ -45,9 +47,9 @@ exports.handler = async (event) => {
       id_clinica,
     });
 
-    // console.log('=== tratamientosData ==========================');
-    // console.dir(tratamientosData, { depth: null, colors: true });
-    // console.log('=============================');
+    console.log('============== TRATAMIENTOS > MÉDICOS > ESPACIOS ==============');
+    console.dir(tratamientosData, { depth: null, colors: true });
+    console.log('===============================================================');
 
     // Extraer IDs de médicos y espacios del JSON de tratamientosData
     const idMedicos = [
@@ -65,6 +67,10 @@ exports.handler = async (event) => {
       id_clinica
     });
 
+    console.log('============== CONSULTAS SQL ==============');
+    console.dir(consultasSQL, { depth: null, colors: true });
+    console.log('===========================================');
+
     // Ejecutar las consultas SQL
     const [citas] = await conn.query(consultasSQL.sql_citas);
     const [progMedicos] = await conn.query(consultasSQL.sql_prog_medicos);
@@ -78,21 +84,23 @@ exports.handler = async (event) => {
       citas_programadas: citas,
     };
 
-    // console.log('=== inputData ==========================');
-    // console.dir(inputData, { depth: null, colors: true });
-    // console.log('=============================');
+    console.log('======== DATA TO CALCULATE AVAILABILITY ========');
+    console.dir(inputData, { depth: null, colors: true });
+    console.log('================================================');
 
     // Calcular la disponibilidad
     const disponibilidad = availabilityCalculator(inputData);
 
-    console.log('=== disponibilidad ==========================');
+    console.log('================= AVAILABILITY =================');
     console.dir(disponibilidad, { depth: null, colors: true });
-    console.log('=============================');
+    console.log('================================================');
 
     // Liberar la conexión después de realizar las operaciones
     conn.release();
 
-    const disponibilidad_to_base64 = Buffer.from(JSON.stringify(disponibilidad), 'utf-8').toString('base64');
+    const disponibilidadAjustadas = fixAvailability(disponibilidad, tiempo_actual);
+
+    const disponibilidad_to_base64 = Buffer.from(JSON.stringify(disponibilidadAjustadas), 'utf-8').toString('base64');
 
     return {
       statusCode: 200,

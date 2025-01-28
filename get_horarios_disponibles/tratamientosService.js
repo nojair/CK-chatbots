@@ -3,6 +3,8 @@ async function getTratamientosData(connection, {
   id_clinica,
   tratamientosSeleccionados
 }) {
+  console.log("Iniciando la consulta de tratamientos...");
+  
   const [foundTratamientos] = await connection.execute(
     `
     SELECT DISTINCT 
@@ -20,17 +22,26 @@ async function getTratamientosData(connection, {
     ORDER BY es_exacto DESC, relevancia DESC, nombre_tratamiento ASC
     `,
     [
-      tratamientosSeleccionados.join(" "), // Parámetro para la búsqueda MATCH
-      ...tratamientosSeleccionados, // Parámetros para la verificación exacta
-      tratamientosSeleccionados.join(" "), // Reutilizamos el texto para el segundo MATCH
-      id_clinica, // ID de la clínica
+      tratamientosSeleccionados.join(" "), 
+      ...tratamientosSeleccionados, 
+      tratamientosSeleccionados.join(" "), 
+      id_clinica
     ]
   );  
 
+  if (foundTratamientos.length === 0) {
+    console.warn("No se encontraron tratamientos para la clínica:", id_clinica);
+  }
+
   const tratamientos = foundTratamientos.filter(ft => ft.es_exacto == 1);
+  if (tratamientos.length === 0) {
+    console.warn("No se encontraron tratamientos exactos entre los seleccionados:", tratamientosSeleccionados);
+  }
 
   const result = [];
   for (const tratamiento of tratamientos) {
+    console.log("Procesando tratamiento:", tratamiento.nombre_tratamiento);
+
     const [medicos] = await connection.execute(
       `SELECT m.id_medico, m.nombre_medico, m.apellido_medico 
        FROM medicos m
@@ -40,8 +51,14 @@ async function getTratamientosData(connection, {
       [tratamiento.id_tratamiento, id_clinica]
     );
 
+    if (medicos.length === 0) {
+      console.warn(`No se encontraron médicos para el tratamiento: ${tratamiento.nombre_tratamiento}`);
+    }
+
     const medicosConEspacios = [];
     for (const medico of medicos) {
+      console.log(`Procesando médico: ${medico.nombre_medico} ${medico.apellido_medico}`);
+
       const [espacios] = await connection.execute(
         `
         SELECT e.id_espacio, e.nombre AS nombre_espacio
@@ -54,6 +71,10 @@ async function getTratamientosData(connection, {
         `,
         [medico.id_medico, tratamiento.id_tratamiento, id_clinica]
       );      
+
+      if (espacios.length === 0) {
+        console.warn(`No se encontraron espacios para el médico: ${medico.nombre_medico} ${medico.apellido_medico}`);
+      }
 
       medicosConEspacios.push({
         id_medico: medico.id_medico,
@@ -72,6 +93,11 @@ async function getTratamientosData(connection, {
     });
   }
 
+  if (result.length === 0) {
+    console.warn("No se encontraron resultados para ningún tratamiento, médico o espacio.");
+  }
+
+  console.log("Consulta finalizada con éxito.");
   return result;
 }
 
