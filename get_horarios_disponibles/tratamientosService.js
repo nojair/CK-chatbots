@@ -44,7 +44,7 @@ async function getTratamientosData(connection, {
     for (const medico of medicos) {
       const [espacios] = await connection.execute(
         `
-        SELECT e.id_espacio, e.nombre 
+        SELECT e.id_espacio, e.nombre AS nombre_espacio
         FROM espacios e
         INNER JOIN medico_espacio me ON me.id_espacio = e.id_espacio
         INNER JOIN espacios_tratamientos et ON et.id_espacio = e.id_espacio

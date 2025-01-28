@@ -1,9 +1,9 @@
-const { getDbPool } = require("./db");
-const sqlGenerator = require("./sqlGenerator");
-const tratamientosService = require("./tratamientosService");
-const availabilityCalculator = require("./availabilityCalculator");
+const { getDbPool } = require("./get_horarios_disponibles/db");
+const sqlGenerator = require("./get_horarios_disponibles/sqlGenerator");
+const tratamientosService = require("./get_horarios_disponibles/tratamientosService");
+const availabilityCalculator = require("./get_horarios_disponibles/availabilityCalculator");
 
-const handler = async (event) => {
+exports.handler = async (event) => {
   let conn;
 
   try {
@@ -45,9 +45,9 @@ const handler = async (event) => {
       id_clinica,
     });
 
-    console.log('=== tratamientosData ==========================');
-    console.dir(tratamientosData, { depth: null, colors: true });
-    console.log('=============================');
+    // console.log('=== tratamientosData ==========================');
+    // console.dir(tratamientosData, { depth: null, colors: true });
+    // console.log('=============================');
 
     // Extraer IDs de médicos y espacios del JSON de tratamientosData
     const idMedicos = [
@@ -78,9 +78,9 @@ const handler = async (event) => {
       citas_programadas: citas,
     };
 
-    console.log('=== inputData ==========================');
-    console.dir(inputData, { depth: null, colors: true });
-    console.log('=============================');
+    // console.log('=== inputData ==========================');
+    // console.dir(inputData, { depth: null, colors: true });
+    // console.log('=============================');
 
     // Calcular la disponibilidad
     const disponibilidad = availabilityCalculator(inputData);
@@ -92,9 +92,11 @@ const handler = async (event) => {
     // Liberar la conexión después de realizar las operaciones
     conn.release();
 
+    const disponibilidad_to_base64 = Buffer.from(JSON.stringify(disponibilidad), 'utf-8').toString('base64');
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ tratamientosData, disponibilidad }),
+      body: JSON.stringify({ resultado_consulta: disponibilidad_to_base64 }),
     };
   } catch (error) {
     console.error("Error en la Lambda:", error);
@@ -108,8 +110,8 @@ const handler = async (event) => {
   }
 };
 
-module.exports = { handler };
+// module.exports = { handler };
 
-handler({
-  body: '{"id_clinica":64,"tiempo_actual":"2025-01-26T18:54:22.000Z","tratamientos":["Quiropodia", "Primera consulta dermatológica (quiropodia)"],"medicos":[],"espacios":[],"aparatologias":[],"especialidades":[],"fechas":[{"fecha":"2025-01-28","horas":[{"hora_inicio":"","hora_fin":""}]}]}'
-});
+// handler({
+//   body: '{"id_clinica":64,"tiempo_actual":"2025-01-26T18:54:22.000Z","tratamientos":["Quiropodia"],"medicos":[],"espacios":[],"aparatologias":[],"especialidades":[],"fechas":[{"fecha":"2025-01-28","horas":[{"hora_inicio":"","hora_fin":""}]}]}'
+// });

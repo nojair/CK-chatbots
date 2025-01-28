@@ -13,12 +13,13 @@ function getDbPool() {
   if (!pool) {
     console.log("[DEBUG] Initializing MySQL pool");
     pool = mysql.createPool({
+      timezone: 'Z',
+      connectionLimit: 10,
+      waitForConnections: true,
       host: MYSQL_HOST,
       user: MYSQL_USER,
-      password: MYSQL_PASSWORD,
       database: MYSQL_DB,
-      waitForConnections: true,
-      connectionLimit: 10,
+      password: MYSQL_PASSWORD,
     });
   }
   return pool;
