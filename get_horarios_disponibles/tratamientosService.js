@@ -1,7 +1,7 @@
 // Servicio para procesar los tratamientos, médicos y espacios
 async function getTratamientosData(connection, {
   id_clinica,
-  tratamientosSeleccionados
+  tratamientosConsultados
 }) {
   console.log("Iniciando la consulta de tratamientos...");
   
@@ -13,7 +13,7 @@ async function getTratamientosData(connection, {
         duracion,
         MATCH(nombre_tratamiento, descripcion) AGAINST(?) AS relevancia,
         (CASE 
-            WHEN nombre_tratamiento IN (${tratamientosSeleccionados.map(() => '?').join(', ')}) THEN 1 
+            WHEN nombre_tratamiento IN (${tratamientosConsultados.map(() => '?').join(', ')}) THEN 1 
             ELSE 0 
          END) AS es_exacto
     FROM tratamientos
@@ -22,9 +22,9 @@ async function getTratamientosData(connection, {
     ORDER BY es_exacto DESC, relevancia DESC, nombre_tratamiento ASC
     `,
     [
-      tratamientosSeleccionados.join(" "), 
-      ...tratamientosSeleccionados, 
-      tratamientosSeleccionados.join(" "), 
+      tratamientosConsultados.join(" "), 
+      ...tratamientosConsultados, 
+      tratamientosConsultados.join(" "), 
       id_clinica
     ]
   );  
@@ -35,7 +35,7 @@ async function getTratamientosData(connection, {
 
   const tratamientos = foundTratamientos.filter(ft => ft.es_exacto == 1);
   if (tratamientos.length === 0) {
-    console.warn("No se encontraron tratamientos exactos entre los seleccionados:", tratamientosSeleccionados);
+    console.warn("No se encontraron tratamientos exactos entre los seleccionados:", tratamientosConsultados);
   }
 
   const result = [];
@@ -97,7 +97,6 @@ async function getTratamientosData(connection, {
     console.warn("No se encontraron resultados para ningún tratamiento, médico o espacio.");
   }
 
-  console.log("Consulta finalizada con éxito.");
   return result;
 }
 

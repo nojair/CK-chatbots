@@ -13,7 +13,6 @@ exports.handler = async (event) => {
     // Obtener conexión del pool
     const pool = getDbPool();
     conn = await pool.getConnection();
-    console.log("Conexión a la base de datos establecida.");
 
     // Leer y procesar la entrada
     let body = event.body;
@@ -23,7 +22,7 @@ exports.handler = async (event) => {
     const datosEntrada = JSON.parse(body);
 
     const {
-      tratamientos: tratamientosSeleccionados,
+      tratamientos: tratamientosConsultados,
       fechas: fechasSeleccionadas,
       id_clinica,
       tiempo_actual,
@@ -33,15 +32,21 @@ exports.handler = async (event) => {
       console.error("Falta el ID de la clínica.");
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "Ups, parece que hubo un error." }),
+        body: JSON.stringify({
+          success: false,
+          message: "Falta el ID de la clínica.",
+        }),
       };
     }
 
-    if (!Array.isArray(tratamientosSeleccionados) || tratamientosSeleccionados.length === 0) {
+    if (!Array.isArray(tratamientosConsultados) || tratamientosConsultados.length === 0) {
       console.error("No se seleccionaron tratamientos.");
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "El mensaje no indica un tratamiento." }),
+        body: JSON.stringify({
+          success: false,
+          message: "El mensaje no indica un tratamiento.",
+        }),
       };
     }
 
@@ -50,16 +55,29 @@ exports.handler = async (event) => {
     let tratamientosData;
     try {
       tratamientosData = await tratamientosService.getTratamientosData(conn, {
-        tratamientosSeleccionados,
+        tratamientosConsultados,
         id_clinica,
       });
 
       if (tratamientosData.length === 0) {
-        console.warn("No se encontraron tratamientos disponibles.");
+        console.warn("Los tratamientos consultados no existen en la base de datos." + tratamientosConsultados.join(', '));
+        return {
+          statusCode: 404,
+          body: JSON.stringify({
+            success: false,
+            message: "Los tratamientos consultados no existen en la base de datos." + tratamientosConsultados.join(', '),
+          }),
+        };
       }
     } catch (error) {
       console.error("Error al obtener tratamientos:", error);
-      throw new Error("Error al consultar tratamientos.");
+      return {
+        statusCode: 500,
+        body: JSON.stringify({
+          success: false,
+          message: "Error al consultar tratamientos.",
+        }),
+      };
     }
 
     console.log("Tratamientos obtenidos:", JSON.stringify(tratamientosData));
@@ -76,11 +94,26 @@ exports.handler = async (event) => {
     ];
 
     if (idMedicos.length === 0) {
-      console.warn("No se encontraron médicos asociados a los tratamientos.");
+      console.warn("No se encontraron médicos configurados para los tratamientos consultados." + tratamientosConsultados.join(', '));
+      return {
+        statusCode: 404,
+        body: JSON.stringify({
+          success: false,
+          message: "No se encontraron médicos configurados para los tratamientos consultados." + tratamientosConsultados.join(', '),
+        }),
+      };
     }
 
     if (idEspacios.length === 0) {
-      console.warn("No se encontraron espacios asociados a los tratamientos.");
+      const nombresMedicos = idMedicos.map(id => w.map(t => t.medicos.find(m => m.id_medico == id))[0]?.nombre_medico).join(', ');
+      console.warn("No se encontraron espacios configurados para los tratamientos consultados o a uno de los médicos " + nombresMedicos);
+      return {
+        statusCode: 404,
+        body: JSON.stringify({
+          success: false,
+          message: "No se encontraron espacios configurados para los tratamientos consultados o a uno de los médicos " + nombresMedicos,
+        }),
+      };
     }
 
     const consultasSQL = sqlGenerator.generarConsultasSQL({
@@ -99,7 +132,13 @@ exports.handler = async (event) => {
       [progEspacios] = await conn.query(consultasSQL.sql_prog_espacios);
     } catch (error) {
       console.error("Error al ejecutar consultas SQL:", error);
-      throw new Error("Error al consultar disponibilidad.");
+      return {
+        statusCode: 500,
+        body: JSON.stringify({
+          success: false,
+          message: "Error al consultar disponibilidad.",
+        }),
+      };
     }
 
     console.log("Datos obtenidos de la base de datos:", { citas, progMedicos, progEspacios });
@@ -116,7 +155,13 @@ exports.handler = async (event) => {
       disponibilidad = availabilityCalculator(inputData);
     } catch (error) {
       console.error("Error al calcular disponibilidad:", error);
-      throw new Error("Error en el cálculo de disponibilidad.");
+      return {
+        statusCode: 500,
+        body: JSON.stringify({
+          success: false,
+          message: "Error en el cálculo de disponibilidad.",
+        }),
+      };
     }
 
     console.log("Disponibilidad calculada:", JSON.stringify(disponibilidad));
@@ -127,12 +172,26 @@ exports.handler = async (event) => {
 
     const disponibilidadAjustadas = fixAvailability(disponibilidad, tiempo_actual);
 
-    console.log("Disponibilidad calculada final:", JSON.stringify(disponibilidadAjustadas));
+    // Verificar si disponibilidadAjustadas está vacío
+    if (disponibilidadAjustadas.length === 0) {
+      console.warn("No se encontraron horarios disponibles para los tratamientos buscados.");
+      return {
+        statusCode: 404,
+        body: JSON.stringify({
+          success: false,
+          message: "No se encontraron horarios disponibles para los tratamientos buscados.",
+        }),
+      };
+    }
 
+    console.log("Disponibilidad calculada final:", JSON.stringify(disponibilidadAjustadas));
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ resultado_consulta: disponibilidadAjustadas }),
+      body: JSON.stringify({
+        success: true,
+        analisis_agenda: disponibilidadAjustadas,
+      }),
     };
   } catch (error) {
     console.error("Error en la Lambda:", error);
@@ -141,7 +200,10 @@ exports.handler = async (event) => {
     }
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Error interno del servidor." }),
+      body: JSON.stringify({
+        success: false,
+        message: "Error interno del servidor.",
+      }),
     };
   }
 };

@@ -29,10 +29,6 @@ function fixAvailability(disponibilidades, tiempoActual) {
     return true;
   });
 
-  if (nuevasDisponibilidades.length === 0) {
-    console.error("No hay disponibilidad en el rango solicitado.");
-  }
-
   return nuevasDisponibilidades;
 }
 
