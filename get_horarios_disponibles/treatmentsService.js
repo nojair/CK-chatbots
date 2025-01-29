@@ -1,36 +1,34 @@
-// treatmentsService.js
+const ERRORS = require("./errors");
+
 const executeWithRetry = async (connection, query, params = [], retries = 3) => {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       return await connection.execute(query, params);
     } catch (error) {
-      if (error.code === 'ER_CLIENT_INTERACTION_TIMEOUT' && attempt < retries) {
+      if (error.code === "ER_CLIENT_INTERACTION_TIMEOUT" && attempt < retries) {
         console.warn(`Timeout en intento ${attempt}, reintentando...`);
-        await new Promise(res => setTimeout(res, 1000)); // Espera 1 segundo antes de reintentar
+        await new Promise((res) => setTimeout(res, 1000));
       } else {
-        throw error;
+        throw ERRORS.QUERY_ERROR(error);
       }
     }
   }
 };
 
 async function getTratamientosData(connection, { id_clinica, tratamientosConsultados }) {
-  let errorMessaeges = [];
   console.log("Iniciando la consulta de tratamientos...");
 
-  // Validar conexión
   try {
     await connection.ping();
   } catch (err) {
     console.error("Conexión cerrada, reintentando...");
-    throw new Error("Conexión a la base de datos perdida.");
+    throw ERRORS.DATABASE_CONNECTION;
   }
 
-  // Consulta principal con retries
   let foundTratamientos;
   try {
     const matchAgainst = tratamientosConsultados.join(" ");
-    const exactMatchPlaceholders = tratamientosConsultados.map(() => 'LOWER(TRIM(?))').join(', ');
+    const exactMatchPlaceholders = tratamientosConsultados.map(() => "LOWER(TRIM(?))").join(", ");
 
     const query = `
       SELECT DISTINCT 
@@ -50,66 +48,65 @@ async function getTratamientosData(connection, { id_clinica, tratamientosConsult
 
     const params = [
       matchAgainst,
-      ...tratamientosConsultados.map(tc => tc.toLowerCase().trim()),
+      ...tratamientosConsultados.map((tc) => tc.toLowerCase().trim()),
       matchAgainst,
-      id_clinica
+      id_clinica,
     ];
 
     const [results] = await executeWithRetry(connection, query, params);
     foundTratamientos = results;
   } catch (error) {
     console.error("Error al ejecutar la consulta de tratamientos:", error);
-    throw error;
+    throw ERRORS.QUERY_ERROR(error);
   }
 
   if (foundTratamientos.length === 0) {
-    const error = "[ERR001] No se encontraron tratamientos para la clínica: " + id_clinica;
-    console.warn(error);
-    errorMessaeges.push(error);
+    console.warn(ERRORS.NO_TREATMENTS_FOUND.message);
+    throw ERRORS.NO_TREATMENTS_FOUND;
   }
 
   console.warn("foundTratamientos", foundTratamientos);
 
-  const tratamientos = foundTratamientos.filter(ft => ft.es_exacto == 1);
+  const tratamientos = foundTratamientos.filter((ft) => ft.es_exacto == 1);
   if (tratamientos.length === 0) {
-    const error = "[ERR002] No se encontraron tratamientos exactos entre los seleccionados: " + tratamientosConsultados.join(', ');
-    console.warn(error);
-    errorMessaeges.push(error);
+    console.warn(ERRORS.NO_EXACT_TREATMENTS(tratamientosConsultados).message);
+    throw ERRORS.NO_EXACT_TREATMENTS(tratamientosConsultados);
   }
 
-  // Utilizar Promise.all para procesar tratamientos en paralelo
   const tratamientosPromises = tratamientos.map(async (tratamiento) => {
     console.log("Procesando tratamiento:", tratamiento.nombre_tratamiento);
 
-    // Obtener médicos asociados al tratamiento
     let medicos;
     try {
-      const [medicosResult] = await executeWithRetry(connection, `
+      const [medicosResult] = await executeWithRetry(
+        connection,
+        `
         SELECT m.id_medico, m.nombre_medico, m.apellido_medico 
         FROM medicos m
         INNER JOIN medico_tratamiento mt ON mt.id_medico = m.id_medico
         WHERE mt.id_tratamiento = ?
           AND m.id_clinica = ?
-      `, [tratamiento.id_tratamiento, id_clinica]);
+      `,
+        [tratamiento.id_tratamiento, id_clinica]
+      );
       medicos = medicosResult;
     } catch (error) {
       console.error(`Error al obtener médicos para el tratamiento ${tratamiento.nombre_tratamiento}:`, error);
-      throw error;
+      throw ERRORS.QUERY_ERROR(error);
     }
 
     if (medicos.length === 0) {
-      const error = `[ERR003] No se encontraron médicos para el tratamiento: ${tratamiento.nombre_tratamiento}`;
-      console.warn(error);
-      errorMessaeges.push(error);
+      console.warn(ERRORS.NO_DOCTORS_FOUND(tratamiento.nombre_tratamiento).message);
+      throw ERRORS.NO_DOCTORS_FOUND(tratamiento.nombre_tratamiento);
     }
 
-    // Utilizar Promise.all para obtener espacios para cada médico en paralelo
     const medicosConEspaciosPromises = medicos.map(async (medico) => {
       console.log(`Procesando médico: ${medico.nombre_medico} ${medico.apellido_medico}`);
 
       let espacios;
       try {
-        const [espaciosResult] = await executeWithRetry(connection, `
+        const [espaciosResult] = await executeWithRetry(connection,
+          `
           SELECT e.id_espacio, e.nombre AS nombre_espacio
           FROM espacios e
           INNER JOIN medico_espacio me ON me.id_espacio = e.id_espacio
@@ -117,17 +114,18 @@ async function getTratamientosData(connection, { id_clinica, tratamientosConsult
           WHERE me.id_medico = ? 
             AND et.id_tratamiento = ?
             AND e.id_clinica = ?
-        `, [medico.id_medico, tratamiento.id_tratamiento, id_clinica]);
+        `,
+          [medico.id_medico, tratamiento.id_tratamiento, id_clinica]
+        );
         espacios = espaciosResult;
       } catch (error) {
         console.error(`Error al obtener espacios para el médico ${medico.nombre_medico}:`, error);
-        throw error;
+        throw ERRORS.QUERY_ERROR(error);
       }
 
       if (espacios.length === 0) {
-        const error = `[ERR004] No se encontraron espacios para el médico: ${medico.nombre_medico} ${medico.apellido_medico}`;
-        console.warn(error);
-        errorMessaeges.push(error);
+        console.warn(ERRORS.NO_SPACES_FOUND(medico.nombre_medico).message);
+        throw ERRORS.NO_SPACES_FOUND(medico.nombre_medico);
       }
 
       return {
@@ -158,15 +156,11 @@ async function getTratamientosData(connection, { id_clinica, tratamientosConsult
   }
 
   if (result.length === 0) {
-    const error = "[ERR005] No se encontraron resultados para ningún tratamiento, médico o espacio.";
-    console.warn(error);
-    errorMessaeges.push(error);
+    console.warn(ERRORS.NO_RESULTS_FOUND.message);
+    throw ERRORS.NO_RESULTS_FOUND;
   }
 
-  return {
-    result,
-    errorMessaeges
-  };
+  return result;
 }
 
 module.exports = { getTratamientosData };
