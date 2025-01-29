@@ -1,4 +1,3 @@
-// src/utilidades/calcularDisponibilidad.js
 function calcularDisponibilidad(entrada) {
   const {
     tratamientos,
@@ -23,19 +22,15 @@ function calcularDisponibilidad(entrada) {
   tratamientos.forEach(({ tratamiento, medicos }) => {
     medicos.forEach((medico) => {
       medico.espacios.forEach((espacio) => {
-        // Programaciones de espacio
         const programacionEspacio = prog_espacios.filter(
           (p) => p.id_espacio === espacio.id_espacio
         );
-        // Programaciones de médico
         const programacionMedico = prog_medicos.filter(
           (p) => p.id_medico === medico.id_medico
         );
 
-        // Combinar posibles coincidencias
         programacionEspacio.forEach((progEsp) => {
           programacionMedico.forEach((progMed) => {
-            // Revisar si las fechas coinciden
             if (
               progEsp.fecha_inicio.getTime() !== progMed.fecha_inicio.getTime() ||
               progEsp.fecha_fin.getTime() !== progMed.fecha_fin.getTime()
@@ -43,7 +38,6 @@ function calcularDisponibilidad(entrada) {
               return;
             }
 
-            // Calcular intersección de horarios entre médico y espacio
             const inicioEsp = convertirHoraAMinutos(progEsp.hora_inicio);
             const finEsp = convertirHoraAMinutos(progEsp.hora_fin);
             const inicioMed = convertirHoraAMinutos(progMed.hora_inicio);
@@ -53,7 +47,6 @@ function calcularDisponibilidad(entrada) {
             const ventanaFin = Math.min(finEsp, finMed);
             if (ventanaInicio >= ventanaFin) return;
 
-            // Filtrar citas que se solapen en esa ventana
             const citasEnEspacio = citas_programadas
               .filter(
                 (c) =>
@@ -63,7 +56,6 @@ function calcularDisponibilidad(entrada) {
               .filter((c) => {
                 const cInicio = convertirHoraAMinutos(c.hora_inicio);
                 const cFin = convertirHoraAMinutos(c.hora_fin);
-                // No se solapan si la cita termina antes de que empiece la ventana o empieza después de que acabe la ventana
                 return !(cFin <= ventanaInicio || cInicio >= ventanaFin);
               })
               .map((c) => ({
@@ -72,7 +64,6 @@ function calcularDisponibilidad(entrada) {
               }))
               .sort((a, b) => a.inicio - b.inicio);
 
-            // Calcular huecos disponibles dentro de la ventana
             let ultimoFin = ventanaInicio;
             const intervalosLibres = [];
 
@@ -86,7 +77,6 @@ function calcularDisponibilidad(entrada) {
               intervalosLibres.push({ start: ultimoFin, end: ventanaFin });
             }
 
-            // Generar slots válidos (considerando la duración del tratamiento)
             intervalosLibres.forEach(({ start, end }) => {
               const inicioPosibleMasTarde = end - tratamiento.duracion_tratamiento;
               if (inicioPosibleMasTarde >= start) {

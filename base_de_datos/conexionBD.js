@@ -1,4 +1,3 @@
-// src/base_de_datos/conexionBD.js
 const mysql = require("mysql2/promise");
 require("dotenv").config();
 
@@ -22,10 +21,10 @@ function obtenerPoolBD() {
       user: MYSQL_USER,
       database: MYSQL_DB,
       password: MYSQL_PASSWORD,
-      connectTimeout: 10000, // 10 segundos para establecer conexión
-      acquireTimeout: 10000, // 10 segundos para adquirir conexión del pool
-      idleTimeout: 30000,    // 30 segundos antes de cerrar una conexión inactiva
-      queueLimit: 0,         // Sin límite en la cola
+      connectTimeout: 10000,
+      // acquireTimeout: 10000,
+      idleTimeout: 30000,
+      queueLimit: 0,
     });
   }
   return poolBD;

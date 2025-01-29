@@ -1,4 +1,3 @@
-// src/servicios/servicioTratamientos.js
 const ERRORES = require("../utilidades/errores");
 
 const ejecutarConReintento = async (conexion, consulta, parametros = [], reintentos = 3) => {
@@ -19,7 +18,6 @@ const ejecutarConReintento = async (conexion, consulta, parametros = [], reinten
 async function obtenerDatosTratamientos(conexion, { id_clinica, tratamientosConsultados }) {
   console.log("Iniciando la consulta de tratamientos...");
 
-  // Verificar conexión
   try {
     await conexion.ping();
   } catch (err) {
@@ -27,7 +25,6 @@ async function obtenerDatosTratamientos(conexion, { id_clinica, tratamientosCons
     throw ERRORES.CONEXION_BD;
   }
 
-  // Consultar tratamientos
   let tratamientosEncontrados;
   try {
     const matchAgainst = tratamientosConsultados.join(" ");
@@ -65,24 +62,20 @@ async function obtenerDatosTratamientos(conexion, { id_clinica, tratamientosCons
 
   if (tratamientosEncontrados.length === 0) {
     console.warn(ERRORES.TRATAMIENTOS_NO_ENCONTRADOS([]).message);
-    // Llamamos con array vacío para mantener la coherencia de la función
     throw ERRORES.TRATAMIENTOS_NO_ENCONTRADOS([]);
   }
 
   console.warn("tratamientosEncontrados", tratamientosEncontrados);
 
-  // Filtrar solo los tratamientos con coincidencia exacta
   const tratamientosExactos = tratamientosEncontrados.filter((ft) => ft.es_exacto == 1);
   if (tratamientosExactos.length === 0) {
     console.warn(ERRORES.TRATAMIENTOS_NO_EXACTOS(tratamientosConsultados).message);
     throw ERRORES.TRATAMIENTOS_NO_EXACTOS(tratamientosConsultados);
   }
 
-  // Procesar cada tratamiento para obtener médicos y espacios
   const promesasTratamientos = tratamientosExactos.map(async (tratamiento) => {
     console.log("Procesando tratamiento:", tratamiento.nombre_tratamiento);
 
-    // Obtener médicos para este tratamiento
     let medicos;
     try {
       const [resultadosMedicos] = await ejecutarConReintento(
@@ -104,11 +97,9 @@ async function obtenerDatosTratamientos(conexion, { id_clinica, tratamientosCons
 
     if (medicos.length === 0) {
       console.warn(ERRORES.NINGUN_MEDICO_ENCONTRADO.message);
-      // Para más contexto, podemos mostrar el nombre del tratamiento
       throw ERRORES.NINGUN_MEDICO_ENCONTRADO;
     }
 
-    // Para cada médico, obtener los espacios asociados
     const promesasMedicos = medicos.map(async (medico) => {
       console.log(`Procesando médico: ${medico.nombre_medico} ${medico.apellido_medico}`);
 
@@ -165,7 +156,6 @@ async function obtenerDatosTratamientos(conexion, { id_clinica, tratamientosCons
     throw error;
   }
 
-  // Si después de procesarlos todos, no queda nada, se lanza error
   if (resultadoFinal.length === 0) {
     console.warn(ERRORES.SIN_HORARIOS_DISPONIBLES.message);
     throw ERRORES.SIN_HORARIOS_DISPONIBLES;

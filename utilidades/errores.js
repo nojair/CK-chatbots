@@ -1,6 +1,5 @@
 // src/utilidades/errores.js
 const ERRORES = {
-  // 📌 Errores de Entrada de Datos (1XX)
   FALTA_ID_CLINICA: {
     code: "ERR100",
     message: "Falta el ID de la clínica.",
@@ -14,7 +13,6 @@ const ERRORES = {
     message: "No se han seleccionado fechas para la consulta.",
   },
 
-  // 📌 Errores de Consulta de Datos (2XX)
   TRATAMIENTOS_NO_ENCONTRADOS: (tratamientos) => ({
     code: "ERR200",
     message: `Los tratamientos consultados no existen en la base de datos: ${tratamientos.join(", ")}.`,
@@ -45,7 +43,6 @@ const ERRORES = {
     message: "No se encontró programación para los espacios.",
   },
 
-  // 📌 Errores de Disponibilidad (3XX)
   SIN_HORARIOS_DISPONIBLES: {
     code: "ERR300",
     message: "No se encontraron horarios disponibles para los tratamientos buscados.",
@@ -55,7 +52,6 @@ const ERRORES = {
     message: "Error en el cálculo de disponibilidad.",
   },
 
-  // 📌 Errores de Infraestructura (4XX)
   CONEXION_BD: {
     code: "ERR400",
     message: "Conexión a la base de datos perdida.",
@@ -65,7 +61,6 @@ const ERRORES = {
     message: "Tiempo de espera agotado al consultar la base de datos.",
   },
 
-  // 📌 Errores Internos del Servidor (5XX)
   ERROR_INTERNO_SERVIDOR: {
     code: "ERR500",
     message: "Error interno del servidor.",

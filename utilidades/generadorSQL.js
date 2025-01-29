@@ -1,5 +1,3 @@
-// src/utilidades/generadorSQL.js
-
 function generarConsultaSQL({
   nombreTabla,
   listaFechas,

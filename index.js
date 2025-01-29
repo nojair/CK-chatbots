@@ -30,7 +30,6 @@ exports.handler = async (event) => {
     const poolBD = obtenerPoolBD();
     conexion = await poolBD.getConnection();
 
-    // Decodificar body si está en base64
     let body = event.body;
     if (event.isBase64Encoded) {
       body = Buffer.from(body, "base64").toString("utf-8");
@@ -44,7 +43,6 @@ exports.handler = async (event) => {
       tiempo_actual,
     } = datosEntrada;
 
-    // Validaciones
     if (!id_clinica) throw ERRORES.FALTA_ID_CLINICA;
     if (!Array.isArray(tratamientosConsultados) || tratamientosConsultados.length === 0) {
       throw ERRORES.NINGUN_TRATAMIENTO_SELECCIONADO;
@@ -55,14 +53,12 @@ exports.handler = async (event) => {
 
     console.log("Datos de entrada procesados correctamente.");
 
-    // Obtener datos de tratamientos
     let datosTratamientos;
     try {
       datosTratamientos = await servicioTratamientos.obtenerDatosTratamientos(conexion, {
         tratamientosConsultados,
         id_clinica,
       });
-      // Si retorna array vacío ya hemos manejado el error dentro del servicio
     } catch (error) {
       console.error("Error al obtener tratamientos:", error);
       throw error;
@@ -70,7 +66,6 @@ exports.handler = async (event) => {
 
     console.log("Tratamientos obtenidos:", JSON.stringify(datosTratamientos));
 
-    // Obtener lista de médicos y espacios
     const idsMedicos = [
       ...new Set(datosTratamientos.flatMap((t) => t.medicos.map((m) => m.id_medico))),
     ];
@@ -85,7 +80,6 @@ exports.handler = async (event) => {
     if (idsMedicos.length === 0) throw ERRORES.NINGUN_MEDICO_ENCONTRADO;
     if (idsEspacios.length === 0) throw ERRORES.NINGUN_ESPACIO_ENCONTRADO;
 
-    // Generar consultas SQL
     const consultasSQL = generarConsultasSQL({
       fechas: fechasSeleccionadas,
       id_medicos: idsMedicos,
@@ -95,7 +89,6 @@ exports.handler = async (event) => {
 
     console.log("Consultas SQL generadas:", JSON.stringify(consultasSQL));
 
-    // Ejecutar consultas de disponibilidad
     let citas, progMedicos, progEspacios;
     try {
       const [resultadoCitas, resultadoProgMedicos, resultadoProgEspacios] = await Promise.all([
@@ -118,16 +111,14 @@ exports.handler = async (event) => {
       progEspacios,
     });
 
-    // Verificar si progMedicos o progEspacios son arreglos vacíos
     if (!progMedicos || progMedicos.length === 0) {
-      throw ERRORES.NO_PROG_MEDICOS; // O usa el error que prefieras
+      throw ERRORES.NO_PROG_MEDICOS;
     }
 
     if (!progEspacios || progEspacios.length === 0) {
-      throw ERRORES.NO_PROG_ESPACIOS; // O el error que prefieras
+      throw ERRORES.NO_PROG_ESPACIOS;
     }
 
-    // Calcular disponibilidad
     let disponibilidad;
     try {
       disponibilidad = calcularDisponibilidad({
@@ -141,10 +132,8 @@ exports.handler = async (event) => {
       throw ERRORES.ERROR_CALCULO_DISPONIBILIDAD;
     }
 
-    // Liberar la conexión
     conexion.release();
 
-    // Ajustar disponibilidad en función de la hora actual
     const disponibilidadAjustada = ajustarDisponibilidad(disponibilidad, tiempo_actual);
     if (disponibilidadAjustada.length === 0) throw ERRORES.SIN_HORARIOS_DISPONIBLES;
 
@@ -154,7 +143,7 @@ exports.handler = async (event) => {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
-        errorMessage: null,
+        message: null,
         analisis_agenda: disponibilidadAjustada,
       }),
     };
@@ -163,20 +152,18 @@ exports.handler = async (event) => {
 
     if (conexion) conexion.release();
 
-    // Determinar código de estado según prefijo del código de error
     const codigoError = error.code || "";
-    let statusHTTP = 500; // Por defecto
-    if (codigoError.startsWith("ERR1")) statusHTTP = 400; // Errores 1XX → entrada de datos
-    else if (codigoError.startsWith("ERR2") || codigoError.startsWith("ERR3")) statusHTTP = 404; // Errores 2XX/3XX → datos no encontrados/disponibilidad
-    else if (codigoError.startsWith("ERR4")) statusHTTP = 500; // Infraestructura
-    else if (codigoError.startsWith("ERR5")) statusHTTP = 500; // Internos
-    // Se puede ajustar la lógica según tus necesidades.
+    let statusHTTP = 500;
+    if (codigoError.startsWith("ERR1")) statusHTTP = 400;
+    else if (codigoError.startsWith("ERR2") || codigoError.startsWith("ERR3")) statusHTTP = 404;
+    else if (codigoError.startsWith("ERR4")) statusHTTP = 500;
+    else if (codigoError.startsWith("ERR5")) statusHTTP = 500;
 
     return {
       statusCode: statusHTTP,
       body: JSON.stringify({
         success: false,
-        errorMessage: error.message || ERRORES.ERROR_INTERNO_SERVIDOR.message,
+        message: error.message || ERRORES.ERROR_INTERNO_SERVIDOR.message,
         analisis_agenda: [],
       }),
     };
