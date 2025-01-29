@@ -47,12 +47,11 @@ function calcularDisponibilidad(entrada) {
             const ventanaFin = Math.min(finEsp, finMed);
             if (ventanaInicio >= ventanaFin) return;
 
-            const citasEnEspacio = citas_programadas
-              .filter(
-                (c) =>
-                  c.id_espacio === espacio.id_espacio &&
-                  c.fecha_cita.getTime() === progEsp.fecha_inicio.getTime()
-              )
+            const citasBloqueantes = citas_programadas
+              .filter((c) => c.fecha_cita.getTime() === progEsp.fecha_inicio.getTime())
+
+              .filter((c) => c.id_espacio === espacio.id_espacio || c.id_medico === medico.id_medico)
+              // solapadas con la ventana (ventanaInicio - ventanaFin)
               .filter((c) => {
                 const cInicio = convertirHoraAMinutos(c.hora_inicio);
                 const cFin = convertirHoraAMinutos(c.hora_fin);
@@ -67,7 +66,7 @@ function calcularDisponibilidad(entrada) {
             let ultimoFin = ventanaInicio;
             const intervalosLibres = [];
 
-            for (const cita of citasEnEspacio) {
+            for (const cita of citasBloqueantes) {
               if (cita.inicio > ultimoFin) {
                 intervalosLibres.push({ start: ultimoFin, end: cita.inicio });
               }
