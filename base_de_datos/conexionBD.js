@@ -30,8 +30,8 @@ function obtenerPoolBD() {
     poolBD.on("connection", async (connection) => {
       console.log("[DEBUG] Nueva conexión establecida con MySQL");
       try {
-        await connection.query("SET SESSION wait_timeout=28800");
-        await connection.query("SET SESSION interactive_timeout=28800");
+        await connection.promise().query("SET SESSION wait_timeout=28800");
+        await connection.promise().query("SET SESSION interactive_timeout=28800");
       } catch (err) {
         console.error("[ERROR] No fue posible configurar los timeouts de la sesión:", err);
       }
