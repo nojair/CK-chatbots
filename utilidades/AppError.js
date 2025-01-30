@@ -39,28 +39,36 @@ class AppError extends Error {
   static FALTA_ID_CLINICA() {
     return new AppError({
       code: "ERR100",
-      humanMessage: "Falta el ID de la clínica. Por favor indique la clínica.",
+      humanMessage: "Falta el ID de la clínica en la solicitud. Por favor avisar al equipo de desarrollo.",
     });
   }
+
+  static CLINICA_NO_ENCONTRADA(id_clinica) {
+    return new AppError({
+      code: "ERR202",
+      humanMessage: `No se encontró la clínica con ID ${id_clinica}. Por favor, verifique la información o contacte al soporte.`,
+      context: { id_clinica },
+    });
+  }  
 
   static NINGUN_TRATAMIENTO_SELECCIONADO() {
     return new AppError({
       code: "ERR101",
-      humanMessage: "No ha seleccionado ningún tratamiento. Revise su solicitud.",
+      humanMessage: "No se ha detectado ningún tratamiento en la solicitud. Por favor avisar al quipo de desarrollo",
     });
   }
 
   static NINGUNA_FECHA_SELECCIONADA() {
     return new AppError({
       code: "ERR102",
-      humanMessage: "No se han seleccionado fechas. Por favor agregue las fechas requeridas.",
+      humanMessage: "No se ha detectado ninguna fecha en la solicitud. Por favor avisar al quipo de desarrollo",
     });
   }
 
   static TRATAMIENTOS_NO_ENCONTRADOS(tratamientos = []) {
     return new AppError({
       code: "ERR200",
-      humanMessage: `Los tratamientos indicados no existen en la base de datos: ${tratamientos.join(", ")}. Por favor, revise o cree estos tratamientos.`,
+      humanMessage: `Los tratamientos en la solicitud no existen en la base de datos: ${tratamientos.join(", ")}. Por favor, revise si existe o cree los tratamientos.`,
       context: { tratamientos },
     });
   }
@@ -68,31 +76,35 @@ class AppError extends Error {
   static TRATAMIENTOS_NO_EXACTOS(tratamientos = []) {
     return new AppError({
       code: "ERR201",
-      humanMessage: `Ninguno de los tratamientos coincide exactamente: ${tratamientos.join(", ")}. Verifique o cree el tratamiento correctamente.`,
+      humanMessage: `Ninguno de los tratamientos proporcionados coincide exactamente en la base de datos: ${tratamientos.join(", ")}. Por favor, revise o ajuste los nombres de los tratamientos.`,
+      context: { tratamientos },
+    });
+  }  
+
+  static NINGUN_MEDICO_ENCONTRADO(tratamientos = []) {
+    const tratamientosStr = tratamientos.join(", ");
+
+    return new AppError({
+      code: "ERR202",
+      humanMessage: `No hay médicos configurados para el tratamiento "${tratamientosStr}". Por favor, asigne el tratamiento a un médico.`,
       context: { tratamientos },
     });
   }
 
-  static NINGUN_MEDICO_ENCONTRADO(tratamiento = "") {
-    return new AppError({
-      code: "ERR202",
-      humanMessage: `No hay médicos configurados para el tratamiento "${tratamiento}". Por favor, asigne el tratamiento a un médico.`,
-      context: { tratamiento },
-    });
-  }
+  static NINGUN_ESPACIO_ENCONTRADO(tratamientos = [], medicos = []) {
+    const tratamientosStr = tratamientos.join(", ");
 
-  static NINGUN_ESPACIO_ENCONTRADO(tratamiento = "", medicos = []) {
     return new AppError({
       code: "ERR203",
-      humanMessage: `No hay espacios disponibles para el tratamiento "${tratamiento}" con los médicos [${medicos.join(", ")}]. Por favor configure espacios para el tratamiento y/o verifique que ese espacio esté habilitado para un médico.`,
-      context: { tratamiento, medicos },
+      humanMessage: `No hay espacios disponibles para el tratamiento "${tratamientosStr}" con los médicos [${medicos.join(", ")}]. Por favor configure espacios para el tratamiento y/o verifique que ese espacio esté habilitado para un médico.`,
+      context: { tratamientos, medicos },
     });
   }
 
   static ERROR_CONSULTA_SQL(errorOriginal) {
     return new AppError({
       code: "ERR204",
-      humanMessage: `Ha ocurrido un error interno al consultar la base de datos. Contacte a soporte. Detalle: ${errorOriginal.message}`,
+      humanMessage: `Ha ocurrido un error interno al consultar la base de datos. Por favor avisar al equipo de desarrollo. Detalle: ${errorOriginal.message}`,
       context: { errorOriginal },
     });
   }
@@ -113,11 +125,46 @@ class AppError extends Error {
     });
   }
 
-  static SIN_HORARIOS_DISPONIBLES(tratamiento = "", medicos = [], espacios = []) {
+  static SIN_HORARIOS_DISPONIBLES(tratamientos = [], fechas = []) {
+    const tratamientosStr = tratamientos.join(", ");
+
+    const fechasFormateadas = fechas.map(fechaObj => {
+      const fechaDate = new Date(fechaObj.fecha);
+      const dia = String(fechaDate.getDate()).padStart(2, "0");
+      const mes = String(fechaDate.getMonth() + 1).padStart(2, "0");
+      const anio = fechaDate.getFullYear();
+      let fechaStr = `${dia}/${mes}/${anio}`;
+
+      const horasPresentes = fechaObj.horas.filter(horaObj => horaObj.hora_inicio || horaObj.hora_fin);
+
+      const horasStr = horasPresentes.map(horaObj => {
+        const { hora_inicio, hora_fin } = horaObj;
+        if (hora_inicio && hora_fin) {
+          return `entre las ${hora_inicio} y las ${hora_fin}`;
+        } else if (hora_inicio) {
+          return `a partir de las ${hora_inicio}`;
+        } else if (hora_fin) {
+          return `hasta las ${hora_fin}`;
+        } else {
+          return "";
+        }
+      }).filter(s => s !== "").join(", ");
+
+      if (horasStr) {
+        return `${fechaStr} ${horasStr}`;
+      } else {
+        return `${fechaStr}`;
+      }
+    });
+
+    const fechasStr = fechasFormateadas.join(", ");
+
+    const humanMessage = `No se encontraron horarios disponibles para los tratamientos [${tratamientosStr}] en las siguientes fechas: ${fechasStr}.`;
+
     return new AppError({
       code: "ERR300",
-      humanMessage: `No se encontraron horarios disponibles para "${tratamiento}". No hay disponibilidad con esos médicos [${medicos.join(", ")}] y esos espacios [${espacios.join(", ")}].`,
-      context: { tratamiento, medicos, espacios },
+      humanMessage,
+      context: { tratamientos, fechas },
       isLogOnly: true,
     });
   }
@@ -125,35 +172,35 @@ class AppError extends Error {
   static ERROR_CALCULO_DISPONIBILIDAD() {
     return new AppError({
       code: "ERR301",
-      humanMessage: "Ocurrió un error al calcular la disponibilidad. Contacte a soporte.",
+      humanMessage: "Ocurrió un error al calcular la disponibilidad. Por favor avisar al equipo de desarrollo.",
     });
   }
 
   static CONEXION_BD() {
     return new AppError({
       code: "ERR400",
-      humanMessage: "Se ha perdido la conexión a la base de datos. Contacte a soporte.",
+      humanMessage: "Se ha perdido la conexión a la base de datos. Por favor avisar al equipo de desarrollo.",
     });
   }
 
   static TIEMPO_ESPERA_BD() {
     return new AppError({
       code: "ERR401",
-      humanMessage: "La consulta a la base de datos tardó demasiado. Contacte a soporte.",
+      humanMessage: "La consulta a la base de datos tardó demasiado. Por favor avisar al equipo de desarrollo.",
     });
   }
 
   static ERROR_INTERNO_SERVIDOR() {
     return new AppError({
       code: "ERR500",
-      humanMessage: "Error interno en el servidor. Por favor, contacte a soporte.",
+      humanMessage: "Error interno en el servidor. Por favor avisar al equipo de desarrollo.",
     });
   }
 
   static ERROR_DESCONOCIDO(error) {
     return new AppError({
       code: "ERR501",
-      humanMessage: `Error desconocido: ${error.message}. Por favor, contacte a soporte.`,
+      humanMessage: `Error desconocido: ${error.message}. Por favor avisar al equipo de desarrollo.`,
       context: { error },
     });
   }

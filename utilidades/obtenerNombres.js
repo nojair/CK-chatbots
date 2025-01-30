@@ -8,7 +8,7 @@ async function getNombreClinica(id_clinica) {
       [id_clinica]
     );
     if (resultado.length === 0) {
-      throw AppError.TRATAMIENTOS_NO_ENCONTRADOS([id_clinica]); // Puedes crear un error específico si la clínica no existe
+      throw AppError.CLINICA_NO_ENCONTRADA(id_clinica);
     }
     return resultado[0].nombre_clinica;
   } catch (error) {

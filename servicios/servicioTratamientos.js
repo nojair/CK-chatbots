@@ -1,6 +1,6 @@
 const AppError = require("../utilidades/AppError");
 const { ejecutarConReintento } = require("../utilidades/ejecutarConReintento");
-const { getNombreMedico, getNombreEspacio } = require("../utilidades/obtenerNombres");
+const { getNombreEspacio } = require("../utilidades/obtenerNombres");
 
 async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados }) {
   console.log("Iniciando la consulta de tratamientos...");
@@ -50,7 +50,7 @@ async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados })
     throw AppError.TRATAMIENTOS_NO_ENCONTRADOS(tratamientosConsultados);
   }
 
-  console.log("Tratamientos encontrados:", tratamientosEncontrados);
+  // console.log("Tratamientos encontrados:", tratamientosEncontrados);
 
   const tratamientosExactos = tratamientosEncontrados.filter((ft) => ft.es_exacto == 1);
   if (tratamientosExactos.length === 0) {
@@ -84,7 +84,6 @@ async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados })
 
     if (medicos.length === 0) {
       console.warn("No se encontraron médicos para el tratamiento:", tratamiento.nombre_tratamiento);
-      throw AppError.NINGUN_MEDICO_ENCONTRADO(tratamiento.nombre_tratamiento);
     }
 
     const promesasMedicos = medicos.map(async (medico) => {
@@ -115,16 +114,13 @@ async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados })
 
       if (espacios.length === 0) {
         console.warn("No se encontraron espacios para el médico:", medico.nombre_medico);
-        const nombreMedico = await getNombreMedico(medico.id_medico);
-        throw AppError.NINGUN_ESPACIO_ENCONTRADO(tratamiento.nombre_tratamiento, [nombreMedico]);
       }
 
       const espaciosConNombres = await Promise.all(
         espacios.map(async (espacio) => {
-          const nombreEspacio = await getNombreEspacio(espacio.id_espacio);
           return {
             id_espacio: espacio.id_espacio,
-            nombre_espacio: nombreEspacio,
+            nombre_espacio: espacio.nombre_espacio,
           };
         })
       );
@@ -154,22 +150,6 @@ async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados })
   } catch (error) {
     console.error("Error al procesar tratamientos en paralelo:", error);
     throw error;
-  }
-
-  if (resultadoFinal.length === 0) {
-    console.warn("No se encontraron horarios disponibles tras procesar los tratamientos.");
-    const nombresMedicos = await Promise.all(
-      idsMedicos.map((id_medico) => getNombreMedico(id_medico))
-    );
-    const nombresEspacios = await Promise.all(
-      idsEspacios.map((id_espacio) => getNombreEspacio(id_espacio))
-    );
-
-    throw AppError.SIN_HORARIOS_DISPONIBLES(
-      tratamientosConsultados.join(", "),
-      nombresMedicos,
-      nombresEspacios
-    );
   }
 
   return resultadoFinal;

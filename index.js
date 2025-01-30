@@ -68,8 +68,17 @@ exports.handler = async (event) => {
       ),
     ];
 
-    if (idsMedicos.length === 0) throw AppError.NINGUN_MEDICO_ENCONTRADO();
-    if (idsEspacios.length === 0) throw AppError.NINGUN_ESPACIO_ENCONTRADO();
+    if (idsMedicos.length === 0) {
+      const nombresTratamientos = datosTratamientos.map((t) => t.nombre_tratamiento);
+      throw AppError.NINGUN_MEDICO_ENCONTRADO(nombresTratamientos);
+    }
+    if (idsEspacios.length === 0) {
+      const nombresMedicos = await Promise.all(
+        idsMedicos.map((id_medico) => getNombreMedico(id_medico))
+      );
+      const nombresTratamientos = datosTratamientos.map((t) => t.nombre_tratamiento);
+      throw AppError.NINGUN_ESPACIO_ENCONTRADO(nombresTratamientos, nombresMedicos);
+    }
 
     const consultasSQL = generarConsultasSQL({
       fechas: fechasSeleccionadas,
@@ -88,14 +97,20 @@ exports.handler = async (event) => {
     } catch (error) {
       console.error(error.toString());
       if (error instanceof AppError) throw error;
-      throw AppError.ERROR_CONSULTA_SQL(error); // Envolver si no es AppError
+      throw AppError.ERROR_CONSULTA_SQL(error);
     }
 
     if (!progMedicos || progMedicos.length === 0) {
-      throw AppError.NO_PROG_MEDICOS(idsMedicos, fechasSeleccionadas.map((f) => f.fecha));
+      const nombresMedicos = await Promise.all(
+        idsMedicos.map((id_medico) => getNombreMedico(id_medico))
+      );
+      throw AppError.NO_PROG_MEDICOS(nombresMedicos, fechasSeleccionadas.map((f) => f.fecha));
     }
     if (!progEspacios || progEspacios.length === 0) {
-      throw AppError.NO_PROG_ESPACIOS(idsEspacios, fechasSeleccionadas.map((f) => f.fecha));
+      const nombresEspacios = await Promise.all(
+        idsEspacios.map((id_espacio) => getNombreEspacio(id_espacio))
+      );
+      throw AppError.NO_PROG_ESPACIOS(nombresEspacios, fechasSeleccionadas.map((f) => f.fecha));
     }
 
     let disponibilidad;
@@ -113,19 +128,7 @@ exports.handler = async (event) => {
 
     const disponibilidadAjustada = ajustarDisponibilidad(disponibilidad, tiempo_actual);
     if (disponibilidadAjustada.length === 0) {
-      // Obtener nombres de médicos y espacios para el mensaje
-      const nombresMedicos = await Promise.all(
-        idsMedicos.map((id_medico) => getNombreMedico(id_medico))
-      );
-      const nombresEspacios = await Promise.all(
-        idsEspacios.map((id_espacio) => getNombreEspacio(id_espacio))
-      );
-
-      throw AppError.SIN_HORARIOS_DISPONIBLES(
-        tratamientosConsultados.join(", "),
-        nombresMedicos,
-        nombresEspacios
-      );
+      throw AppError.SIN_HORARIOS_DISPONIBLES(tratamientosConsultados, fechasSeleccionadas);
     }
 
     console.log("Disponibilidad final ajustada:", JSON.stringify(disponibilidadAjustada));
