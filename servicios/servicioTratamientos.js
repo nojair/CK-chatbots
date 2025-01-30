@@ -1,34 +1,15 @@
+const { ejecutarConReintento } = require("../utilidades/ejecutarConReintento");
 const ERRORES = require("../utilidades/errores");
 
-const ejecutarConReintento = async (conexion, consulta, parametros = [], reintentos = 3) => {
-  for (let intento = 1; intento <= reintentos; intento++) {
-    try {
-      return await conexion.execute(consulta, parametros);
-    } catch (error) {
-      if (error.code === "ER_CLIENT_INTERACTION_TIMEOUT" && intento < reintentos) {
-        console.warn(`Timeout en intento ${intento}, reintentando...`);
-        await new Promise((res) => setTimeout(res, 1000));
-      } else {
-        throw ERRORES.ERROR_CONSULTA_SQL(error);
-      }
-    }
-  }
-};
-
-async function obtenerDatosTratamientos(conexion, { id_clinica, tratamientosConsultados }) {
+async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados }) {
   console.log("Iniciando la consulta de tratamientos...");
-
-  try {
-    await conexion.ping();
-  } catch (err) {
-    console.error("Conexión cerrada, reintentando...");
-    throw ERRORES.CONEXION_BD;
-  }
 
   let tratamientosEncontrados;
   try {
     const matchAgainst = tratamientosConsultados.join(" ");
-    const marcadoresExactos = tratamientosConsultados.map(() => "LOWER(TRIM(?))").join(", ");
+    const marcadoresExactos = tratamientosConsultados
+      .map(() => "LOWER(TRIM(?))")
+      .join(", ");
 
     const consultaSQL = `
       SELECT DISTINCT 
@@ -53,8 +34,7 @@ async function obtenerDatosTratamientos(conexion, { id_clinica, tratamientosCons
       id_clinica,
     ];
 
-    const [resultados] = await ejecutarConReintento(conexion, consultaSQL, parametros);
-    tratamientosEncontrados = resultados;
+    tratamientosEncontrados = await ejecutarConReintento(consultaSQL, parametros);
   } catch (error) {
     console.error("Error al ejecutar la consulta de tratamientos:", error);
     throw ERRORES.ERROR_CONSULTA_SQL(error);
@@ -65,31 +45,32 @@ async function obtenerDatosTratamientos(conexion, { id_clinica, tratamientosCons
     throw ERRORES.TRATAMIENTOS_NO_ENCONTRADOS([]);
   }
 
-  console.warn("tratamientosEncontrados", tratamientosEncontrados);
+  console.log("Tratamientos encontrados:", tratamientosEncontrados);
 
+  // Filtramos solo los que coinciden "exactamente"
   const tratamientosExactos = tratamientosEncontrados.filter((ft) => ft.es_exacto == 1);
   if (tratamientosExactos.length === 0) {
     console.warn(ERRORES.TRATAMIENTOS_NO_EXACTOS(tratamientosConsultados).message);
     throw ERRORES.TRATAMIENTOS_NO_EXACTOS(tratamientosConsultados);
   }
 
+  // Procesamos cada tratamiento
   const promesasTratamientos = tratamientosExactos.map(async (tratamiento) => {
     console.log("Procesando tratamiento:", tratamiento.nombre_tratamiento);
 
+    // Obtener médicos
     let medicos;
     try {
-      const [resultadosMedicos] = await ejecutarConReintento(
-        conexion,
+      medicos = await ejecutarConReintento(
         `
-          SELECT m.id_medico, m.nombre_medico, m.apellido_medico 
-          FROM medicos m
-          INNER JOIN medico_tratamiento mt ON mt.id_medico = m.id_medico
-          WHERE mt.id_tratamiento = ?
-            AND m.id_clinica = ?
+        SELECT m.id_medico, m.nombre_medico, m.apellido_medico 
+        FROM medicos m
+        INNER JOIN medico_tratamiento mt ON mt.id_medico = m.id_medico
+        WHERE mt.id_tratamiento = ?
+          AND m.id_clinica = ?
         `,
         [tratamiento.id_tratamiento, id_clinica]
       );
-      medicos = resultadosMedicos;
     } catch (error) {
       console.error(`Error al obtener médicos para el tratamiento ${tratamiento.nombre_tratamiento}:`, error);
       throw ERRORES.ERROR_CONSULTA_SQL(error);
@@ -100,25 +81,24 @@ async function obtenerDatosTratamientos(conexion, { id_clinica, tratamientosCons
       throw ERRORES.NINGUN_MEDICO_ENCONTRADO;
     }
 
+    // Procesar cada médico y sus espacios
     const promesasMedicos = medicos.map(async (medico) => {
       console.log(`Procesando médico: ${medico.nombre_medico} ${medico.apellido_medico}`);
 
       let espacios;
       try {
-        const [resultadosEspacios] = await ejecutarConReintento(
-          conexion,
+        espacios = await ejecutarConReintento(
           `
-            SELECT e.id_espacio, e.nombre AS nombre_espacio
-            FROM espacios e
-            INNER JOIN medico_espacio me ON me.id_espacio = e.id_espacio
-            INNER JOIN espacios_tratamientos et ON et.id_espacio = e.id_espacio
-            WHERE me.id_medico = ? 
-              AND et.id_tratamiento = ?
-              AND e.id_clinica = ?
+          SELECT e.id_espacio, e.nombre AS nombre_espacio
+          FROM espacios e
+          INNER JOIN medico_espacio me ON me.id_espacio = e.id_espacio
+          INNER JOIN espacios_tratamientos et ON et.id_espacio = e.id_espacio
+          WHERE me.id_medico = ? 
+            AND et.id_tratamiento = ?
+            AND e.id_clinica = ?
           `,
           [medico.id_medico, tratamiento.id_tratamiento, id_clinica]
         );
-        espacios = resultadosEspacios;
       } catch (error) {
         console.error(`Error al obtener espacios para el médico ${medico.nombre_medico}:`, error);
         throw ERRORES.ERROR_CONSULTA_SQL(error);
@@ -138,6 +118,7 @@ async function obtenerDatosTratamientos(conexion, { id_clinica, tratamientosCons
 
     const medicosConEspacios = await Promise.all(promesasMedicos);
 
+    // Retornamos el tratamiento con sus médicos y espacios
     return {
       tratamiento: {
         id_tratamiento: tratamiento.id_tratamiento,
@@ -148,12 +129,13 @@ async function obtenerDatosTratamientos(conexion, { id_clinica, tratamientosCons
     };
   });
 
+  // Ejecutamos todas las promesas de tratamientos
   let resultadoFinal;
   try {
     resultadoFinal = await Promise.all(promesasTratamientos);
   } catch (error) {
     console.error("Error al procesar tratamientos en paralelo:", error);
-    throw error;
+    throw error; // Mantenemos el mismo error
   }
 
   if (resultadoFinal.length === 0) {
