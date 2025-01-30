@@ -4,6 +4,7 @@ const servicioTratamientos = require("./servicios/servicioTratamientos");
 const ajustarDisponibilidad = require("./utilidades/ajustarDisponibilidad");
 const calcularDisponibilidad = require("./utilidades/calcularDisponibilidad");
 const { ejecutarConReintento } = require("./utilidades/ejecutarConReintento");
+const { getNombreClinica, getNombreMedico, getNombreEspacio } = require("./utilidades/obtenerNombres");
 
 exports.handler = async (event) => {
   console.log("Evento recibido:", JSON.stringify(event));
@@ -29,6 +30,13 @@ exports.handler = async (event) => {
       throw AppError.NINGUNA_FECHA_SELECCIONADA();
     }
 
+    let nombreClinica;
+    try {
+      nombreClinica = await getNombreClinica(id_clinica);
+    } catch (error) {
+      throw AppError.CONEXION_BD();
+    }
+
     console.log("Datos de entrada procesados correctamente.");
 
     let datosTratamientos;
@@ -39,6 +47,11 @@ exports.handler = async (event) => {
       });
     } catch (error) {
       console.error(error.toString());
+      if (error instanceof AppError) {
+        if (!error.context.nombre_clinica) {
+          error.context.nombre_clinica = nombreClinica;
+        }
+      }
       throw error;
     }
 
@@ -50,8 +63,8 @@ exports.handler = async (event) => {
     const idsEspacios = [
       ...new Set(
         datosTratamientos.flatMap((t) =>
-          t.medicos.flatMap((m) => m.espacios.map((e) => e.id_espacio)),
-        ),
+          t.medicos.flatMap((m) => m.espacios.map((e) => e.id_espacio))
+        )
       ),
     ];
 
@@ -75,7 +88,7 @@ exports.handler = async (event) => {
     } catch (error) {
       console.error(error.toString());
       if (error instanceof AppError) throw error;
-      throw AppError.ERROR_CONSULTA_SQL(error);
+      throw AppError.ERROR_CONSULTA_SQL(error); // Envolver si no es AppError
     }
 
     if (!progMedicos || progMedicos.length === 0) {
@@ -100,10 +113,18 @@ exports.handler = async (event) => {
 
     const disponibilidadAjustada = ajustarDisponibilidad(disponibilidad, tiempo_actual);
     if (disponibilidadAjustada.length === 0) {
+      // Obtener nombres de médicos y espacios para el mensaje
+      const nombresMedicos = await Promise.all(
+        idsMedicos.map((id_medico) => getNombreMedico(id_medico))
+      );
+      const nombresEspacios = await Promise.all(
+        idsEspacios.map((id_espacio) => getNombreEspacio(id_espacio))
+      );
+
       throw AppError.SIN_HORARIOS_DISPONIBLES(
         tratamientosConsultados.join(", "),
-        idsMedicos,
-        idsEspacios,
+        nombresMedicos,
+        nombresEspacios
       );
     }
 
@@ -140,7 +161,11 @@ exports.handler = async (event) => {
 
       return {
         statusCode: statusHTTP,
-        body: JSON.stringify(error.toJSON()),
+        body: JSON.stringify({
+          success: false,
+          message: error.message,
+          analisis_agenda: [],
+        }),
       };
     }
 
@@ -148,7 +173,11 @@ exports.handler = async (event) => {
     const errDesconocido = AppError.ERROR_DESCONOCIDO(error);
     return {
       statusCode: 500,
-      body: JSON.stringify(errDesconocido.toJSON()),
+      body: JSON.stringify({
+        success: false,
+        message: errDesconocido.message,
+        analisis_agenda: [],
+      }),
     };
   }
 };

@@ -1,5 +1,6 @@
-const { ejecutarConReintento } = require("../utilidades/ejecutarConReintento");
 const AppError = require("../utilidades/AppError");
+const { ejecutarConReintento } = require("../utilidades/ejecutarConReintento");
+const { getNombreMedico, getNombreEspacio } = require("../utilidades/obtenerNombres");
 
 async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados }) {
   console.log("Iniciando la consulta de tratamientos...");
@@ -114,15 +115,24 @@ async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados })
 
       if (espacios.length === 0) {
         console.warn("No se encontraron espacios para el médico:", medico.nombre_medico);
-        throw AppError.NINGUN_ESPACIO_ENCONTRADO(tratamiento.nombre_tratamiento, [
-          `${medico.nombre_medico} ${medico.apellido_medico}`,
-        ]);
+        const nombreMedico = await getNombreMedico(medico.id_medico);
+        throw AppError.NINGUN_ESPACIO_ENCONTRADO(tratamiento.nombre_tratamiento, [nombreMedico]);
       }
+
+      const espaciosConNombres = await Promise.all(
+        espacios.map(async (espacio) => {
+          const nombreEspacio = await getNombreEspacio(espacio.id_espacio);
+          return {
+            id_espacio: espacio.id_espacio,
+            nombre_espacio: nombreEspacio,
+          };
+        })
+      );
 
       return {
         id_medico: medico.id_medico,
         nombre_medico: `${medico.nombre_medico} ${medico.apellido_medico}`,
-        espacios,
+        espacios: espaciosConNombres,
       };
     });
 
@@ -148,7 +158,18 @@ async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados })
 
   if (resultadoFinal.length === 0) {
     console.warn("No se encontraron horarios disponibles tras procesar los tratamientos.");
-    throw AppError.SIN_HORARIOS_DISPONIBLES();
+    const nombresMedicos = await Promise.all(
+      idsMedicos.map((id_medico) => getNombreMedico(id_medico))
+    );
+    const nombresEspacios = await Promise.all(
+      idsEspacios.map((id_espacio) => getNombreEspacio(id_espacio))
+    );
+
+    throw AppError.SIN_HORARIOS_DISPONIBLES(
+      tratamientosConsultados.join(", "),
+      nombresMedicos,
+      nombresEspacios
+    );
   }
 
   return resultadoFinal;
