@@ -5,7 +5,6 @@ function generarConsultaSQL({
   listaIdEspacios = [],
   idClinica,
 }) {
-  // Construir condiciones de tiempo
   const condicionesTiempo = listaFechas.map((fechaObj) =>
     nombreTabla === "citas"
       ? `(fecha_cita = '${fechaObj.fecha}')`
@@ -44,7 +43,6 @@ WHERE
 }
 
 function generarConsultasSQL({ fechas, id_medicos, id_espacios, id_clinica }) {
-  // Validación mínima
   if (!fechas || !id_clinica) {
     throw new Error("Los campos 'fechas' e 'id_clinica' son obligatorios.");
   }

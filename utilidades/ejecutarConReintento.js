@@ -1,5 +1,5 @@
 const { obtenerPoolBD } = require("../base_de_datos/conexionBD");
-const ERRORES = require("./errores");
+const AppError = require("./AppError");
 
 async function ejecutarConReintento(consulta, parametros = [], reintentos = 3) {
   const poolBD = obtenerPoolBD();
@@ -13,17 +13,17 @@ async function ejecutarConReintento(consulta, parametros = [], reintentos = 3) {
     } catch (error) {
       console.error(`Intento ${intento} falló:`, error);
 
-      // Si es el último intento o no es un timeout "ER_CLIENT_INTERACTION_TIMEOUT", lanzamos error
       if (intento === reintentos || error.code !== "ER_CLIENT_INTERACTION_TIMEOUT") {
-        throw ERRORES.ERROR_CONSULTA_SQL(error);
+        throw AppError.ERROR_CONSULTA_SQL(error);
       }
 
-      // Esperamos 1 segundo antes de reintentar
       await new Promise((resolve) => setTimeout(resolve, 1000));
     } finally {
       if (conexion) conexion.release();
     }
   }
+
+  throw AppError.ERROR_CONSULTA_SQL(new Error("Fallo inesperado en reintentos"));
 }
 
 module.exports = {

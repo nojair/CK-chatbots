@@ -1,5 +1,5 @@
 const { ejecutarConReintento } = require("../utilidades/ejecutarConReintento");
-const ERRORES = require("../utilidades/errores");
+const AppError = require("../utilidades/AppError");
 
 async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados }) {
   console.log("Iniciando la consulta de tratamientos...");
@@ -12,14 +12,14 @@ async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados })
       .join(", ");
 
     const consultaSQL = `
-      SELECT DISTINCT 
+      SELECT DISTINCT
           id_tratamiento,
           nombre_tratamiento,
           duracion AS duracion_tratamiento,
           MATCH(nombre_tratamiento, descripcion) AGAINST(?) AS relevancia,
-          (CASE 
-              WHEN LOWER(TRIM(nombre_tratamiento)) IN (${marcadoresExactos}) THEN 1 
-              ELSE 0 
+          (CASE
+              WHEN LOWER(TRIM(nombre_tratamiento)) IN (${marcadoresExactos}) THEN 1
+              ELSE 0
            END) AS es_exacto
       FROM tratamientos
       WHERE MATCH(nombre_tratamiento, descripcion) AGAINST(?)
@@ -37,33 +37,34 @@ async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados })
     tratamientosEncontrados = await ejecutarConReintento(consultaSQL, parametros);
   } catch (error) {
     console.error("Error al ejecutar la consulta de tratamientos:", error);
-    throw ERRORES.ERROR_CONSULTA_SQL(error);
+
+    if (!(error instanceof AppError)) {
+      throw AppError.ERROR_CONSULTA_SQL(error);
+    }
+    throw error;
   }
 
   if (tratamientosEncontrados.length === 0) {
-    console.warn(ERRORES.TRATAMIENTOS_NO_ENCONTRADOS([]).message);
-    throw ERRORES.TRATAMIENTOS_NO_ENCONTRADOS([]);
+    console.warn("No se encontraron tratamientos en la base de datos.");
+    throw AppError.TRATAMIENTOS_NO_ENCONTRADOS(tratamientosConsultados);
   }
 
   console.log("Tratamientos encontrados:", tratamientosEncontrados);
 
-  // Filtramos solo los que coinciden "exactamente"
   const tratamientosExactos = tratamientosEncontrados.filter((ft) => ft.es_exacto == 1);
   if (tratamientosExactos.length === 0) {
-    console.warn(ERRORES.TRATAMIENTOS_NO_EXACTOS(tratamientosConsultados).message);
-    throw ERRORES.TRATAMIENTOS_NO_EXACTOS(tratamientosConsultados);
+    console.warn("Ninguno de los tratamientos es exacto.");
+    throw AppError.TRATAMIENTOS_NO_EXACTOS(tratamientosConsultados);
   }
 
-  // Procesamos cada tratamiento
   const promesasTratamientos = tratamientosExactos.map(async (tratamiento) => {
     console.log("Procesando tratamiento:", tratamiento.nombre_tratamiento);
 
-    // Obtener médicos
     let medicos;
     try {
       medicos = await ejecutarConReintento(
         `
-        SELECT m.id_medico, m.nombre_medico, m.apellido_medico 
+        SELECT m.id_medico, m.nombre_medico, m.apellido_medico
         FROM medicos m
         INNER JOIN medico_tratamiento mt ON mt.id_medico = m.id_medico
         WHERE mt.id_tratamiento = ?
@@ -72,16 +73,19 @@ async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados })
         [tratamiento.id_tratamiento, id_clinica]
       );
     } catch (error) {
-      console.error(`Error al obtener médicos para el tratamiento ${tratamiento.nombre_tratamiento}:`, error);
-      throw ERRORES.ERROR_CONSULTA_SQL(error);
+      console.error(`Error al obtener médicos para ${tratamiento.nombre_tratamiento}:`, error);
+
+      if (!(error instanceof AppError)) {
+        throw AppError.ERROR_CONSULTA_SQL(error);
+      }
+      throw error;
     }
 
     if (medicos.length === 0) {
-      console.warn(ERRORES.NINGUN_MEDICO_ENCONTRADO.message);
-      throw ERRORES.NINGUN_MEDICO_ENCONTRADO;
+      console.warn("No se encontraron médicos para el tratamiento:", tratamiento.nombre_tratamiento);
+      throw AppError.NINGUN_MEDICO_ENCONTRADO(tratamiento.nombre_tratamiento);
     }
 
-    // Procesar cada médico y sus espacios
     const promesasMedicos = medicos.map(async (medico) => {
       console.log(`Procesando médico: ${medico.nombre_medico} ${medico.apellido_medico}`);
 
@@ -93,7 +97,7 @@ async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados })
           FROM espacios e
           INNER JOIN medico_espacio me ON me.id_espacio = e.id_espacio
           INNER JOIN espacios_tratamientos et ON et.id_espacio = e.id_espacio
-          WHERE me.id_medico = ? 
+          WHERE me.id_medico = ?
             AND et.id_tratamiento = ?
             AND e.id_clinica = ?
           `,
@@ -101,12 +105,18 @@ async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados })
         );
       } catch (error) {
         console.error(`Error al obtener espacios para el médico ${medico.nombre_medico}:`, error);
-        throw ERRORES.ERROR_CONSULTA_SQL(error);
+
+        if (!(error instanceof AppError)) {
+          throw AppError.ERROR_CONSULTA_SQL(error);
+        }
+        throw error;
       }
 
       if (espacios.length === 0) {
-        console.warn(ERRORES.NINGUN_ESPACIO_ENCONTRADO.message);
-        throw ERRORES.NINGUN_ESPACIO_ENCONTRADO;
+        console.warn("No se encontraron espacios para el médico:", medico.nombre_medico);
+        throw AppError.NINGUN_ESPACIO_ENCONTRADO(tratamiento.nombre_tratamiento, [
+          `${medico.nombre_medico} ${medico.apellido_medico}`,
+        ]);
       }
 
       return {
@@ -118,7 +128,6 @@ async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados })
 
     const medicosConEspacios = await Promise.all(promesasMedicos);
 
-    // Retornamos el tratamiento con sus médicos y espacios
     return {
       tratamiento: {
         id_tratamiento: tratamiento.id_tratamiento,
@@ -129,18 +138,17 @@ async function obtenerDatosTratamientos({ id_clinica, tratamientosConsultados })
     };
   });
 
-  // Ejecutamos todas las promesas de tratamientos
   let resultadoFinal;
   try {
     resultadoFinal = await Promise.all(promesasTratamientos);
   } catch (error) {
     console.error("Error al procesar tratamientos en paralelo:", error);
-    throw error; // Mantenemos el mismo error
+    throw error;
   }
 
   if (resultadoFinal.length === 0) {
-    console.warn(ERRORES.SIN_HORARIOS_DISPONIBLES.message);
-    throw ERRORES.SIN_HORARIOS_DISPONIBLES;
+    console.warn("No se encontraron horarios disponibles tras procesar los tratamientos.");
+    throw AppError.SIN_HORARIOS_DISPONIBLES();
   }
 
   return resultadoFinal;
