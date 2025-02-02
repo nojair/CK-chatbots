@@ -20,7 +20,7 @@ function generarConsultaSQL({
   }
 
   const condicionesClinica = [`id_clinica = ${idClinica}`];
-  const condicionesEstado = nombreTabla === "citas" ? ["id_estado_cita IN (1, 4)"] : [];
+  const condicionesEstado = nombreTabla === "citas" ? ["id_estado_cita IN (1, 4, 7)"] : [];
 
   // Combinar todas las condiciones
   const whereConditions = [
